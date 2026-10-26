@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { AlertTriangle, BarChart, Bell, Box, CheckCircle, ClipboardList, CornerDownLeft, DollarSign, Download, Droplet, Factory, FileText, Leaf, Mailbox, Package, Pin, Plus, Printer, Radio, Receipt, RefreshCw, Scroll, Search, Send, Settings, Shield, ShoppingCart, Shuffle, Sprout, TrendingDown, Truck, Wrench, Zap } from 'lucide-react';
+import { AlertTriangle, BarChart, Bell, Box, CheckCircle, ClipboardList, CornerDownLeft, DollarSign, Download, Droplet, Factory, FileText, Leaf, Mailbox, Package, Pin, Plus, Printer, Radio, Receipt, RefreshCw, Scroll, Search, Send, Settings, Shield, ShoppingBag, ShoppingCart, Shuffle, Sprout, TrendingDown, Truck, Wrench, Zap } from 'lucide-react';
 
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 

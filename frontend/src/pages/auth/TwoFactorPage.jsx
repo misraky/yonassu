@@ -54,7 +54,7 @@ const TwoFactorPage = () => {
       else if (userRoles.includes('finance manager') || userRoles.includes('finance')) navigate('/finance');
       else if (userRoles.includes('purchase') || userRoles.includes('purchase manager') || userRoles.includes('market team')) navigate('/purchase');
       else if (userRoles.includes('pharmacy store keeper')) navigate('/pharmacy-store');
-      else if (userRoles.includes('general store keeper')) navigate('/general-store');
+      else if (userRoles.includes('general store keeper') || userRoles.includes('general store') || userRoles.includes('store manager')) navigate('/general-store');
       else if (userRoles.includes('sales/cashier')) navigate('/pharmacy-worker');
       else if (userRoles.includes('printing supervisor')) navigate('/printing-manager');
       else if (userRoles.includes('printing manager')) navigate('/printing-manager');

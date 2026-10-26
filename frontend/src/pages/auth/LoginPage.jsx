@@ -55,7 +55,7 @@ const LoginPage = () => {
       else if (hasRole('finance manager', 'finance')) navigate('/finance');
       else if (hasRole('purchase', 'purchase manager', 'market team')) navigate('/purchase');
       else if (hasRole('pharmacy store keeper', 'pharmacy store')) navigate('/pharmacy-store');
-      else if (hasRole('general store keeper', 'general store')) navigate('/general-store');
+      else if (hasRole('general store keeper', 'general store', 'store manager')) navigate('/general-store');
       else if (hasRole('sales/cashier', 'pharmacy worker')) navigate('/pharmacy-worker');
       else if (hasRole('printing supervisor', 'printing manager')) navigate('/printing-manager');
       else if (hasRole('pharmacy manager')) navigate('/pharmacy');

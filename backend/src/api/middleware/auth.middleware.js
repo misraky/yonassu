@@ -276,6 +276,12 @@ const authorizeRoles = (requiredRoles) => {
     if (reqRolesLower.includes('purchase') && !reqRolesLower.includes('procurement')) {
         reqRolesLower.push('procurement');
     }
+    const storeRoleAliases = ['general store', 'general store keeper', 'general store manager', 'store manager', 'store keeper'];
+    if (reqRolesLower.some(r => storeRoleAliases.includes(r))) {
+        storeRoleAliases.forEach(r => {
+            if (!reqRolesLower.includes(r)) reqRolesLower.push(r);
+        });
+    }
 
     const hasRole = reqRolesLower.some(role => userRolesLower.includes(role)) || userRolesLower.includes('admin');
     if (!hasRole) {

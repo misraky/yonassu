@@ -12,7 +12,7 @@ const Unauthorized = () => {
     if (userRoles.includes('finance manager') || userRoles.includes('finance')) return '/finance';
     if (userRoles.includes('purchase')) return '/purchase';
     if (userRoles.includes('pharmacy store keeper')) return '/pharmacy-store';
-    if (userRoles.includes('general store keeper')) return '/general-store';
+    if (userRoles.includes('general store keeper') || userRoles.includes('general store') || userRoles.includes('store manager')) return '/general-store';
     if (userRoles.includes('sales/cashier')) return '/pharmacy-worker';
     if (userRoles.includes('printing supervisor')) return '/printing-manager';
     if (userRoles.includes('printing manager')) return '/printing-manager';

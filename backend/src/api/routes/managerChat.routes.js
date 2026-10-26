@@ -12,7 +12,7 @@ const ROLES = [
   'Pharmacy Manager', 'Sales Manager',
   'Purchase Manager', 'Purchase',
   'Board Member', 'Board',
-  'General Store Manager', 'General Store Keeper', 'General Store',
+  'Store Manager', 'General Store Manager', 'General Store Keeper', 'General Store',
   'Pharmacy Store Manager', 'Pharmacy Store Keeper', 'Pharmacy Store',
   'Finance Manager', 'Accountant',
   'Pharmacy Worker', 'Cashier', 'Employee'

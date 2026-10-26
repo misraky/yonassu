@@ -19,6 +19,8 @@ const ROLE_HOME = {
   'Market Team': '/purchase',
   'Pharmacy Store Keeper': '/pharmacy-store',
   'General Store Keeper': '/general-store',
+  'General Store': '/general-store',
+  'Store Manager': '/general-store',
   'Printing Supervisor': '/printing-manager',
   'Printing Manager': '/printing-manager',
   'Pharmacy Manager': '/pharmacy',
@@ -32,7 +34,7 @@ const ROLE_HOME = {
 };
 const ROLE_PRIORITY = [
   'Admin', 'CEO', 'Board Member', 'Finance', 'Finance Manager', 'Purchase', 'Pharmacy Store Keeper',
-  'General Store Keeper', 'Printing Supervisor', 'Printing Manager', 'Market Team', 'Pharmacy Manager', 'Pharmacy Worker',
+  'General Store Keeper', 'Store Manager', 'Printing Supervisor', 'Printing Manager', 'Market Team', 'Pharmacy Manager', 'Pharmacy Worker',
   'Sales/Cashier', 'Car Renting Manager', 'Sales Manager', 'HR Manager', 'Employee', 'Customer'
 ];
 

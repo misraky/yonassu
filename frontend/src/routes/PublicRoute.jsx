@@ -17,6 +17,7 @@ const PublicRoute = ({ children }) => {
       'Pharmacy Store': '/pharmacy-store',
       'General Store Keeper': '/general-store',
       'General Store': '/general-store',
+      'Store Manager': '/general-store',
       'Sales/Cashier': '/pharmacy-worker',
       'Printing Supervisor': '/printing-manager',
       'Printing Manager': '/printing-manager',
@@ -34,7 +35,7 @@ const PublicRoute = ({ children }) => {
     const rolePriority = [
       'Admin', 'CEO', 'Board Member', 'Finance', 'Finance Manager',
       'Purchase', 'Purchase Manager', 'Pharmacy Store', 'Pharmacy Store Keeper',
-      'General Store', 'General Store Keeper',
+      'General Store', 'General Store Keeper', 'Store Manager',
       'Printing Supervisor', 'Printing Manager', 'Market Team',
       'Pharmacy Manager', 'Pharmacy Worker',
       'Sales/Cashier', 'Car Renting Manager', 'Rental Manager',
