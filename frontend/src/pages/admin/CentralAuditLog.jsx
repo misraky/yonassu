@@ -400,10 +400,12 @@ const CentralAuditLog = ({ fixedModule, mode }) => {
               <span className={styles.badgeTxt}>
                 {fixedModule === 'Pharmacy' ? (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="pill" size={14} /> Pharmacy Module</span>
+                ) : fixedModule === 'Store' ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="package" size={14} /> Store Module</span>
                 ) : 'Security & Compliance'}
               </span>
             </div>
-            <h1 className={styles.pageTitle}>{fixedModule === 'Pharmacy' ? 'Pharmacy Audit Log' : 'Central Audit Log'}</h1>
+            <h1 className={styles.pageTitle}>{fixedModule === 'Pharmacy' ? 'Pharmacy Audit Log' : fixedModule === 'Store' ? 'General Store Audit Log' : 'Central Audit Log'}</h1>
             <p className={styles.pageSubtitle}>
               {fixedModule === 'Pharmacy'
                 ? 'Pharmacy activity log — medicines, sales, stock, procurement, expiry, batches, transfers and all staff actions within the pharmacy module.'
@@ -492,7 +494,7 @@ const CentralAuditLog = ({ fixedModule, mode }) => {
           </select>
         )}
 
-        {(!isSuperAdmin && !isCEO && !fixedModule) || fixedModule === 'Pharmacy' ? (
+        {(!isSuperAdmin && !isCEO && !fixedModule) || fixedModule === 'Pharmacy' || fixedModule === 'Store' ? (
           <div className={styles.lockedBadge}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{marginRight: 6}}>
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -501,7 +503,7 @@ const CentralAuditLog = ({ fixedModule, mode }) => {
             {fixedModule === 'Pharmacy'
               ? 'Pharmacy Module Only (Medicines · Sales · Stock · Procurement · Expiry · Batches)'
               : isHR ? 'HR Module Only'
-              : isStore ? 'Store Module Only'
+              : (fixedModule === 'Store' || isStore) ? 'Store Module Only (Inventory · Stock · Movements · Requisitions)'
               : isPharmacy ? 'Pharmacy Module Only'
               : isPrinting ? 'Printing Module + Your Activity'
               : isSales ? 'Sales Module + Your Activity'

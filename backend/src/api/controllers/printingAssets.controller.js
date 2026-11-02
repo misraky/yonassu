@@ -10,12 +10,13 @@ const err = (res, msg, status = 500)     => res.status(status).json({ success: f
 /* Non-blocking audit log helper — mirrors hr.controller.js */
 const storeLog = (req, action, recordIdentifier, previousValue, newValue) => {
   const u = req.user || {};
+  const isMaterialAction = action && action.includes('MATERIAL');
   centralAudit.createLog({
     userId:           u.id || null,
     userName:         u.fullName || u.full_name || u.username || 'System',
     role:             Array.isArray(u.roles) ? u.roles.join(', ') : (u.role_names || u.role || 'Unknown'),
-    department:       u.departmentName || u.department_name || 'Printing',
-    module:           'Printing',
+    department:       isMaterialAction ? 'General Store' : (u.departmentName || u.department_name || 'Printing'),
+    module:           isMaterialAction ? 'Store' : 'Printing',
     action,
     recordIdentifier: String(recordIdentifier || ''),
     previousValue,
@@ -43,8 +44,10 @@ exports.listStoreMachines = async (req, res) => {
   try {
     const { status, department } = req.query;
     let query = db('printing_assets_machines').orderBy('id', 'desc');
-    if (status) query = query.where('status', status);
-    if (department) query = query.where('department', department);
+    if (status && status !== 'All') query = query.where('status', status);
+    if (department && department !== 'All' && department !== 'All Departments') {
+      query = query.whereILike('department', department);
+    }
     const rows = await query;
     ok(res, rows);
   } catch (e) { err(res, e.message); }
@@ -53,26 +56,41 @@ exports.listStoreMachines = async (req, res) => {
 exports.registerMachine = async (req, res) => {
   try {
     const { machine_name, model_serial, condition_notes, registered_by, date_registered, department } = req.body;
-    if (!machine_name) return err(res, 'machine_name is required', 400);
+    if (!machine_name || !machine_name.trim()) return err(res, 'machine_name is required', 400);
     const machine_id = await genMachineId();
+    const dept = (department && department.trim()) || 'Printing';
+    const regBy = (registered_by && registered_by.trim()) || (req.user && (req.user.full_name || req.user.fullName || req.user.username)) || 'Store Keeper';
+    const storeLocation = dept.toLowerCase().includes('store') ? dept : `${dept} Store`;
+
     await db('printing_assets_machines').insert({
-      machine_id, machine_name, model_serial, condition_notes,
-      department: department || 'Printing',
-      registered_by: registered_by || (req.user && req.user.fullName) || 'Store Keeper',
+      machine_id,
+      machine_name: machine_name.trim(),
+      model_serial: model_serial || null,
+      condition_notes: condition_notes || null,
+      department: dept,
+      registered_by: regBy,
       date_registered: date_registered || new Date().toISOString().split('T')[0],
       status: 'In Store',
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
     });
+
     await db('general_movement_log').insert({
-      item_type: 'Machine', item_id: machine_id,
-      from_location: 'External', to_location: 'Printing Store',
-      department: department || 'Printing',
-      moved_by: registered_by || (req.user && req.user.fullName) || 'Store Keeper',
-      action_type: 'Register', notes: `Machine registered: ${machine_name}`,
+      item_type: 'Machine',
+      item_id: machine_id,
+      from_location: 'External',
+      to_location: storeLocation,
+      department: dept,
+      moved_by: regBy,
+      action_type: 'Register',
+      notes: `Machine registered: ${machine_name.trim()}${model_serial ? ` (${model_serial})` : ''}`,
     });
+
     storeLog(req, 'PRINTING_MACHINE_REGISTERED', machine_id, null, {
-      machine_name, model_serial, department: department || 'Printing',
+      machine_name: machine_name.trim(), model_serial, department: dept,
     });
-    ok(res, { machine_id }, 'Machine registered successfully');
+
+    ok(res, { machine_id, machine_name: machine_name.trim(), department: dept }, 'Machine registered successfully');
   } catch (e) { err(res, e.message); }
 };
 
@@ -114,9 +132,20 @@ exports.updateMachineValue = async (req, res) => {
 // ─── STORE MATERIALS ─────────────────────────────────────────────────────────
 exports.listStoreMaterials = async (req, res) => {
   try {
-    const { department } = req.query;
+    const { department, category, search } = req.query;
     let query = db('general_store_materials').orderBy('id', 'desc');
-    if (department) query = query.where('department', department);
+    if (department && department !== 'All' && department !== 'All Departments') {
+      query = query.whereILike('department', department);
+    }
+    if (category && category !== 'All' && category !== 'All Categories') {
+      query = query.whereILike('category', category);
+    }
+    if (search) {
+      query = query.where(builder => {
+        builder.whereILike('material_name', `%${search}%`)
+               .orWhereILike('material_id', `%${search}%`);
+      });
+    }
     const rows = await query;
     
     const pendingRequests = await db('store_update_approvals').where('status', 'PENDING').select('material_id');
@@ -134,32 +163,50 @@ exports.listStoreMaterials = async (req, res) => {
 exports.registerMaterial = async (req, res) => {
   try {
     const { material_name, category, unit, quantity_in_store, registered_by, date_registered, department, reorder_level, unit_value } = req.body;
-    if (!material_name) return err(res, 'material_name is required', 400);
+    if (!material_name || !material_name.trim()) return err(res, 'material_name is required', 400);
     const material_id = await genMaterialId();
     const qty = parseFloat(quantity_in_store) || 0;
     const price = parseFloat(unit_value) || 0;
     const total = qty * price;
     const reorder = parseInt(reorder_level) || 10;
+    const dept = (department && department.trim()) || 'Printing';
+    const regBy = (registered_by && registered_by.trim()) || (req.user && (req.user.full_name || req.user.fullName || req.user.username)) || 'Store Keeper';
+    const storeLocation = dept.toLowerCase().includes('store') ? dept : `${dept} Store`;
+
     await db('general_store_materials').insert({
-      material_id, material_name, category: category || 'Other', unit: unit || 'unit',
-      quantity_in_store: qty, unit_value: price, total_value: total, reorder_level: reorder,
-      department: department || 'Printing',
-      registered_by: registered_by || (req.user && req.user.fullName) || 'Store Keeper',
+      material_id,
+      material_name: material_name.trim(),
+      category: category || 'Other',
+      unit: unit || 'unit',
+      quantity_in_store: qty,
+      unit_value: price,
+      total_value: total,
+      reorder_level: reorder,
+      department: dept,
+      registered_by: regBy,
       date_registered: date_registered || new Date().toISOString().split('T')[0],
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
     });
+
     await db('general_movement_log').insert({
-      item_type: 'Material', item_id: material_id,
-      from_location: 'External', to_location: 'Printing Store',
+      item_type: 'Material',
+      item_id: material_id,
+      from_location: 'External',
+      to_location: storeLocation,
       quantity: qty,
-      department: department || 'Printing',
-      moved_by: registered_by || (req.user && req.user.fullName) || 'Store Keeper',
-      action_type: 'Register', notes: `Material registered: ${material_name}, qty: ${qty}`,
+      department: dept,
+      moved_by: regBy,
+      action_type: 'Register',
+      notes: `Material registered: ${material_name.trim()}, qty: ${qty} ${unit || 'unit'}`,
     });
+
     storeLog(req, 'PRINTING_MATERIAL_REGISTERED', material_id, null, {
-      material_name, category: category || 'Other', unit: unit || 'unit',
-      quantity_in_store: qty, department: department || 'Printing',
+      material_name: material_name.trim(), category: category || 'Other', unit: unit || 'unit',
+      quantity_in_store: qty, department: dept,
     });
-    ok(res, { material_id }, 'Material registered successfully');
+
+    ok(res, { material_id, material_name: material_name.trim(), quantity_in_store: qty, department: dept }, 'Material registered successfully');
   } catch (e) { err(res, e.message); }
 };
 
@@ -580,12 +627,21 @@ exports.consumeMaterial = async (req, res) => {
 // ─── MOVEMENT LOG ─────────────────────────────────────────────────────────────
 exports.getMovementLog = async (req, res) => {
   try {
-    const { item_type, item_id, department } = req.query;
+    const { item_type, item_id, department, action_type } = req.query;
     let q = db('general_movement_log').orderBy('date_time', 'desc');
-    if (item_type) q = q.where({ item_type });
-    if (item_id)   q = q.where({ item_id });
-    if (department) q = q.where({ department });
-    const rows = await q.limit(200);
+    if (item_type && item_type !== 'All' && item_type !== 'All Types') {
+      q = q.whereILike('item_type', item_type);
+    }
+    if (item_id) {
+      q = q.whereILike('item_id', `%${item_id}%`);
+    }
+    if (department && department !== 'All' && department !== 'All Departments') {
+      q = q.whereILike('department', department);
+    }
+    if (action_type && action_type !== 'All' && action_type !== 'All Actions') {
+      q = q.whereILike('action_type', action_type);
+    }
+    const rows = await q.limit(500);
     ok(res, rows);
   } catch (e) { err(res, e.message); }
 };

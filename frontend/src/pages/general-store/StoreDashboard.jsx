@@ -61,7 +61,7 @@ const GeneralStoreDashboard = () => {
             <Route path="reports"             element={<StoreReports />} />
             <Route path="car-renting-requests" element={<StoreCarRentingRequests />} />
             <Route path="chat"               element={<ManagerChat />} />
-            <Route path="audit-log"          element={<CentralAuditLog />} />
+            <Route path="audit-log"          element={<CentralAuditLog fixedModule="Store" />} />
             <Route path="*"                  element={<Navigate to="/general-store/overview" replace />} />
           </Routes>
         </div>

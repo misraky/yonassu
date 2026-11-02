@@ -12,13 +12,21 @@ const G = {
   orange: '#FF9800', red: '#F44336', purple: '#7C3AED',
 };
 
-const DEPARTMENTS = ['Printing', 'Car Rental', 'AgriRent', 'IT', 'Maintenance', 'Sales'];
+const DEPARTMENTS = ['Printing', 'Car Rental', 'AgriRent', 'Retail', 'IT', 'Maintenance', 'Sales'];
 const CATEGORIES  = ['Paper', 'Ink', 'Toner', 'Fuel', 'Lubricant/Oil', 'Spare Parts', 'Tires', 'Cleaning', 'Stationery', 'Chemical', 'Other'];
 
-const api = axios.create();
+const rawApiUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) || '';
+const backendOrigin = rawApiUrl.replace(/\/api\/v1\/?$/, '');
+
+const api = axios.create({
+  baseURL: backendOrigin || '',
+  withCredentials: true,
+});
 api.interceptors.request.use(cfg => {
-  const t = localStorage.getItem('token');
+  const t = localStorage.getItem('token') || sessionStorage.getItem('token');
   if (t) cfg.headers.Authorization = `Bearer ${t}`;
+  const s = localStorage.getItem('sessionId') || sessionStorage.getItem('sessionId');
+  if (s) cfg.headers['x-session-id'] = s;
   return cfg;
 });
 
@@ -614,6 +622,9 @@ const GSI_CSS = `
   .gsi-refresh:hover { color: #B45309; border-color: #EAB308; box-shadow: 0 4px 12px rgba(234,179,8,0.18); transform: translateY(-1px); }
   .gsi-refresh:disabled { opacity: 0.55; cursor: not-allowed; }
   .gsi-refresh:focus-visible { outline: 3px solid rgba(234,179,8,0.45); outline-offset: 2px; }
+  .gsi-add-btn { height: 36px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: none; border-radius: 8px; background: var(--color-primary, #2563EB); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 150ms ease-in-out; }
+  .gsi-add-btn:hover { background: #1D4ED8; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
+  .gsi-badge--pending { background: #FEF3C7 !important; color: #92400E !important; border: 1px solid #FDE68A; font-weight: 600 !important; }
   .gsi-print { height: 36px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--color-border, #E5E7EB); border-radius: 8px; background: var(--color-bg-card, #fff); color: var(--color-text-primary, #111827); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 150ms ease-in-out; }
   .gsi-print:hover { color: #2563EB; border-color: #2563EB; background: #EFF6FF; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,0.15); }
 
@@ -701,7 +712,6 @@ export const GSInventory = () => {
   const [saving, setSaving]   = useState(false);
   const [toast, setToast]     = useState(null);
   const [customDept, setCustomDept] = useState(false);
-  const [focused, setFocused] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -709,260 +719,121 @@ export const GSInventory = () => {
       const params = {};
       if (dept) params.department = dept;
       const r = await api.get('/api/v1/printing-assets/store/materials', { params });
-      // Show all departments including Sales/Retail
-      const all = r.data.data || [];
-      setItems(all);
-    } catch { setItems([]); }
+      const all = r.data?.data || r.data || [];
+      setItems(Array.isArray(all) ? all : []);
+    } catch {
+      setItems([]);
+    }
     setLoading(false);
   }, [dept]);
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = items.filter(i =>
-    (!cat || i.category === cat) &&
-    (!search || i.material_name.toLowerCase().includes(search.toLowerCase()) || i.material_id.toLowerCase().includes(search.toLowerCase()))
-  );
+  // Dynamic departments derived from standard list + actual inventory items
+  const allDepts = Array.from(new Set([...DEPARTMENTS, 'Retail', ...items.map(m => m.department)].filter(Boolean)));
+
+  const filtered = items.filter(i => {
+    const matchCat = !cat || (i.category && i.category.toLowerCase() === cat.toLowerCase());
+    const s = search.trim().toLowerCase();
+    const matchSearch = !s || (
+      (i.material_name && String(i.material_name).toLowerCase().includes(s)) ||
+      (i.material_id && String(i.material_id).toLowerCase().includes(s)) ||
+      (i.department && String(i.department).toLowerCase().includes(s))
+    );
+    return matchCat && matchSearch;
+  });
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4500); };
 
   const submitUpdate = async () => {
-    if (!updatingItem.material_name.trim()) return showToast('error', 'Item Name required');
+    if (!updatingItem.material_name || !updatingItem.material_name.trim()) {
+      return showToast('error', 'Item Name required');
+    }
     setSaving(true);
     try {
-      await api.put(`/api/v1/printing-assets/store/materials/${updatingItem.id}`, updatingItem);
-      showToast('success', `"${updatingItem.material_name}" successfully updated!`);
-      setTimeout(() => { setUpdatingItem(null); load(); }, 1500);
-    } catch (e) { showToast('error', e.response?.data?.message || 'Update failed'); }
+      const res = await api.put(`/api/v1/printing-assets/store/materials/${updatingItem.id}`, updatingItem);
+      showToast('success', res.data?.message || `Update request submitted for "${updatingItem.material_name}"!`);
+      setTimeout(() => {
+        setUpdatingItem(null);
+        load();
+      }, 1200);
+    } catch (e) {
+      showToast('error', e.response?.data?.message || 'Update failed');
+    }
     setSaving(false);
   };
 
-  if (updatingItem) {
-    const qty = parseFloat(updatingItem.quantity_in_store) || 0;
-    const price = parseFloat(updatingItem.unit_value) || 0;
-    const total = qty * price;
+  const deptColors = {
+    Printing: '#16A34A',
+    'Car Rental': '#0284C7',
+    AgriRent: '#D97706',
+    Sales: '#7C3AED',
+    Retail: '#DB2777',
+    IT: '#2563EB',
+    Maintenance: '#DC2626'
+  };
 
-    return (
-      <div className="gsi-modal-wrap">
-        <style>{GSI_CSS}</style>
-        <div className="gsi-modal" role="dialog" aria-modal="true" aria-label={`Update Material ${updatingItem.material_id}`}>
-          <div className="gsi-modal-head">
-            <div>
-              <h2 className="gsi-modal-title">Update Material <span className="gsi-modal-id">{updatingItem.material_id}</span></h2>
-              <p className="gsi-modal-sub">University General Store Inventory Control</p>
-            </div>
-            <button className="gsi-modal-close" onClick={() => setUpdatingItem(null)} aria-label="Close">✕</button>
-          </div>
-
-          <div className="gsi-modal-body">
-            <div>
-              <div className="gsi-fieldset-title">Material Details</div>
-              <div className="gsi-grid-2">
-                <div className="gsi-field">
-                  <label className="gsi-label">Item Name</label>
-                  <input className="gsi-input" value={updatingItem.material_name} onChange={e => setUpdatingItem({ ...updatingItem, material_name: e.target.value })} />
-                </div>
-                <div className="gsi-field">
-                  <label className="gsi-label">Category</label>
-                  <select className="gsi-input" value={updatingItem.category} onChange={e => setUpdatingItem({ ...updatingItem, category: e.target.value })}>
-                    {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="gsi-field">
-                  <label className="gsi-label">Department</label>
-                  {!customDept ? (
-                    <div className="gsi-dept-row">
-                      <select className="gsi-input" value={updatingItem.department} onChange={e => setUpdatingItem({ ...updatingItem, department: e.target.value })}>
-                        <option value="">-- Select --</option>
-                        {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                      </select>
-                      <button className="gsi-icon-btn" onClick={() => setCustomDept(true)} title="Custom department">+</button>
-                    </div>
-                  ) : (
-                    <div className="gsi-dept-row">
-                      <input className="gsi-input" value={updatingItem.department} onChange={e => setUpdatingItem({ ...updatingItem, department: e.target.value })} placeholder="Type dept..." />
-                      <button className="gsi-icon-btn gsi-icon-btn--danger" onClick={() => { setCustomDept(false); setUpdatingItem({ ...updatingItem, department: 'Printing' }); }} title="Reset to Printing">✕</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div className="gsi-fieldset-title">Inventory &amp; Pricing</div>
-              <div className="gsi-grid-2">
-                {[['unit', 'Unit (e.g. roll)', 'text'], ['quantity_in_store', 'Qty in Store', 'number'], ['unit_value', 'Cost Price/Unit (ETB)', 'number'], ['reorder_level', 'Reorder Level', 'number']].map(([k, lbl, type]) => (
-                  <div key={k} className="gsi-field">
-                    <label className="gsi-label">{lbl}</label>
-                    <input className="gsi-input" type={type} value={updatingItem[k]} onChange={e => setUpdatingItem({ ...updatingItem, [k]: e.target.value })} />
-                  </div>
-                ))}
-              </div>
-
-              {/* Input VAT config */}
-              <div style={{ marginTop: 16, padding: '12px 16px', background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <input
-                    type="checkbox"
-                    id="upd_vat_toggle"
-                    checked={!!updatingItem.has_input_vat}
-                    onChange={e => setUpdatingItem({ ...updatingItem, has_input_vat: e.target.checked })}
-                    style={{ width: 15, height: 15, accentColor: '#D97706', cursor: 'pointer' }}
-                  />
-                  <label htmlFor="upd_vat_toggle" style={{ fontSize: 13, fontWeight: 700, color: '#92400E', cursor: 'pointer' }}>
-                    <Receipt size={18} /> Purchased with Input VAT (VAT-registered supplier)
-                  </label>
-                </div>
-                {updatingItem.has_input_vat && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div className="gsi-field" style={{ marginBottom: 0 }}>
-                      <label className="gsi-label">VAT Rate (%)</label>
-                      <select className="gsi-input" value={updatingItem.vat_rate || 15} onChange={e => setUpdatingItem({ ...updatingItem, vat_rate: parseFloat(e.target.value) })}>
-                        <option value={15}>15% (Standard)</option>
-                        <option value={10}>10%</option>
-                        <option value={5}>5%</option>
-                        <option value={0}>0% (Exempt)</option>
-                      </select>
-                    </div>
-                    <div className="gsi-field" style={{ marginBottom: 0 }}>
-                      <label className="gsi-label">Input VAT per Unit (ETB)</label>
-                      <input
-                        className="gsi-input"
-                        type="number"
-                        readOnly
-                        value={(price * ((updatingItem.vat_rate || 15) / 100)).toFixed(2)}
-                        style={{ background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}
-                      />
-                    </div>
-                    <div className="gsi-field" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
-                      <label className="gsi-label" style={{ color: '#92400E' }}>Total Input VAT this batch (Qty × VAT/unit)</label>
-                      <input
-                        className="gsi-input"
-                        type="number"
-                        readOnly
-                        value={(total * ((updatingItem.vat_rate || 15) / 100)).toFixed(2)}
-                        style={{ background: '#FEF3C7', color: '#B45309', fontWeight: 700 }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="gsi-modal-foot">
-            <div className="gsi-total">
-              <span className="gsi-total-label">
-                {updatingItem.has_input_vat ? 'Stock Value (excl. VAT)' : 'Live Calculation'}
-              </span>
-              <span className="gsi-total-value">ETB {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            </div>
-            {updatingItem.has_input_vat && (
-              <div style={{ fontSize: 13, color: '#D97706', fontWeight: 600, padding: '4px 0' }}>
-                <Receipt size={18} /> Input VAT: ETB {(total * ((updatingItem.vat_rate || 15) / 100)).toFixed(2)} &nbsp;|&nbsp; Total incl. VAT: ETB {(total * (1 + (updatingItem.vat_rate || 15) / 100)).toFixed(2)}
-              </div>
-            )}
-            <button className="gsi-save" onClick={submitUpdate} disabled={saving}>
-              {saving && <SegmentedSpinner size={16} color="#fff" />}
-              <span>{saving ? 'UPDATING...' : 'SAVE CHANGES'}</span>
-            </button>
-          </div>
-        </div>
-
-{toast && (
-          <div className={`gsi-toast gsi-toast--${toast.type}`}>
-            <span className="gsi-toast-icon">{toast.type === 'success' ? '✓' : '✕'}</span>
-            <span>{toast.msg}</span>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const deptColors = { Printing: '#16A34A', 'Car Rental': '#0284C7', AgriRent: '#D97706', Sales: '#7C3AED', Retail: '#DB2777', IT: '#2563EB', Maintenance: '#DC2626' };
+  const lowStockCount = items.filter(m => parseFloat(m.quantity_in_store || 0) <= parseFloat(m.reorder_level || 10)).length;
+  const uniqueDeptsCount = Array.from(new Set(items.map(m => m.department).filter(Boolean))).length;
 
   const stats = [
     { label: 'Total Items', value: items.length, icon: <ClipboardList size={16} />, c: '#2563EB' },
-    { label: 'Low Stock', value: items.filter(m => parseFloat(m.quantity_in_store) <= parseFloat(m.reorder_level || 10)).length, icon: <AlertTriangle size={16} />, c: '#D97706' },
+    { label: 'Low Stock', value: lowStockCount, icon: <AlertTriangle size={16} />, c: lowStockCount > 0 ? '#DC2626' : '#D97706' },
     { label: 'Filtered', value: filtered.length, icon: <Search size={16} />, c: '#0284C7' },
-    { label: 'Departments', value: [...new Set(items.map(m => m.department))].length, icon: <Box size={16} />, c: '#16A34A' },
+    { label: 'Departments', value: uniqueDeptsCount, icon: <Box size={16} />, c: '#16A34A' },
   ];
   const numCols = ['IN STORE', 'REORDER', 'UNIT', 'COST PRICE', 'TOTAL VALUE'];
 
   const handlePrint = () => {
     const totalVal = filtered.reduce((s, m) => s + parseFloat(m.total_value || 0), 0);
     const dateStr = new Date().toLocaleString();
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Consumables Inventory</title>
-        <style>
-          @page { size: A4 landscape; margin: 15mm; }
-          body { font-family: 'Segoe UI', system-ui, sans-serif; color: #111827; margin: 0; padding: 0; font-size: 11px; }
-          .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #111827; padding-bottom: 10px; }
-          .header h1 { margin: 0 0 5px 0; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; }
-          .header p { margin: 0; color: #4B5563; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th { background: #F3F4F6; padding: 8px; text-align: left; border-bottom: 2px solid #D1D5DB; font-size: 10px; text-transform: uppercase; color: #374151; }
-          td { padding: 6px 8px; border-bottom: 1px solid #E5E7EB; vertical-align: top; }
-          .num { text-align: right; font-variant-numeric: tabular-nums; }
-          .grand-total { background: #F9FAFB; font-weight: bold; border-top: 2px solid #111827; }
-          .grand-total td { padding: 10px 8px; font-size: 12px; }
-          .footer { text-align: center; font-size: 10px; color: #6B7280; margin-top: 30px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>SUTANA University</h1>
-          <p>General Store — Consumables Inventory</p>
-          <p>Generated on: ${dateStr} | Total Items: ${filtered.length}</p>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>No.</th>
-              <th>Item ID</th>
-              <th>Item Name</th>
-              <th>Category</th>
-              <th>Department</th>
-              <th class="num">In Store</th>
-              <th class="num">Reorder</th>
-              <th>Unit</th>
-              <th class="num">Cost Price (ETB)</th>
-              <th class="num">Total Value (ETB)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filtered.map((m, i) => `
-              <tr>
-                <td>${i + 1}</td>
-                <td>${m.material_id}</td>
-                <td><strong>${m.material_name}</strong></td>
-                <td>${m.category}</td>
-                <td>${m.department}</td>
-                <td class="num">${parseFloat(m.quantity_in_store).toLocaleString()}</td>
-                <td class="num">${parseInt(m.reorder_level) || 10}</td>
-                <td>${m.unit}</td>
-                <td class="num">${m.unit_value > 0 ? parseFloat(m.unit_value).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
-                <td class="num"><strong>${m.total_value > 0 ? parseFloat(m.total_value).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</strong></td>
-              </tr>
-            `).join('')}
-            <tr class="grand-total">
-              <td colspan="9" class="num" style="padding-right: 15px;">GRAND TOTAL VALUE (ETB):</td>
-              <td class="num">${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="footer">Printed from SUTANA General Store Operations System</div>
-        <script>window.onload = function() { window.print(); }</script>
-      </body>
-      </html>
-    `;
+    const rowsHtml = filtered.map((m, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${m.material_id || '—'}</td>
+        <td><strong>${m.material_name}</strong></td>
+        <td>${m.category || 'General'}</td>
+        <td>${m.department || '—'}</td>
+        <td class="num">${parseFloat(m.quantity_in_store || 0).toLocaleString()}</td>
+        <td class="num">${parseInt(m.reorder_level) || 10}</td>
+        <td>${m.unit || 'unit'}</td>
+        <td class="num">${m.unit_value > 0 ? parseFloat(m.unit_value).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
+        <td class="num"><strong>${m.total_value > 0 ? parseFloat(m.total_value).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</strong></td>
+      </tr>
+    `).join('');
+
+    const html = `<!DOCTYPE html>
+<html><head><title>Consumables Inventory</title>
+<style>
+@page { size: A4 landscape; margin: 15mm; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; color: #111827; margin: 0; padding: 0; font-size: 11px; }
+.header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #111827; padding-bottom: 10px; }
+.header h1 { margin: 0 0 5px 0; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; }
+.header p { margin: 0; color: #4B5563; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+th { background: #F3F4F6; padding: 8px; text-align: left; border-bottom: 2px solid #D1D5DB; font-size: 10px; text-transform: uppercase; color: #374151; }
+td { padding: 6px 8px; border-bottom: 1px solid #E5E7EB; vertical-align: top; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.grand-total { background: #F9FAFB; font-weight: bold; border-top: 2px solid #111827; }
+.grand-total td { padding: 10px 8px; font-size: 12px; }
+.footer { text-align: center; font-size: 10px; color: #6B7280; margin-top: 30px; }
+</style></head><body>
+<div class="header"><h1>SUTANA EMS</h1><p>General Store — Consumables Inventory</p><p>Generated on: ${dateStr} | Total Items: ${filtered.length}</p></div>
+<table><thead><tr><th>No.</th><th>Item ID</th><th>Item Name</th><th>Category</th><th>Department</th><th class="num">In Store</th><th class="num">Reorder</th><th>Unit</th><th class="num">Cost Price (ETB)</th><th class="num">Total Value (ETB)</th></tr></thead>
+<tbody>${rowsHtml}<tr class="grand-total"><td colspan="9" class="num" style="padding-right: 15px;">GRAND TOTAL VALUE (ETB):</td><td class="num">${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr></tbody></table>
+<div class="footer">Printed from SUTANA General Store Operations System</div>
+<script>window.onload = function() { window.print(); }<\/script></body></html>`;
+
     const win = window.open('', '_blank');
     if (win) {
       win.document.write(html);
       win.document.close();
     }
+  };
+
+  const navToRegister = () => {
+    window.history.pushState({}, '', '/general-store/register');
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   return (
@@ -972,10 +843,15 @@ export const GSInventory = () => {
       {/* ── HEADER ── */}
       <div className="gsi-header">
         <div>
-          <h1 className="gsi-title"><Package size={18} /> Consumables Inventory</h1>
+          <h1 className="gsi-title"><Package size={20} /> Consumables Inventory</h1>
+          <p className="gsi-subtitle">Comprehensive tracking of consumables, store quantities, unit valuations, and reorder levels</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="gsi-print" onClick={handlePrint}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button className="gsi-add-btn" onClick={navToRegister} title="Register a new inventory consumable">
+            <Plus size={16} />
+            <span>REGISTER ITEM</span>
+          </button>
+          <button className="gsi-print" onClick={handlePrint} title="Print inventory report">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
@@ -983,8 +859,8 @@ export const GSInventory = () => {
             </svg>
             <span>PRINT</span>
           </button>
-          <button className="gsi-refresh" onClick={load} disabled={loading}>
-            {loading && <SegmentedSpinner size={16} color="#2563EB" />}
+          <button className="gsi-refresh" onClick={load} disabled={loading} title="Refresh inventory from server">
+            {loading ? <SegmentedSpinner size={16} color="#2563EB" /> : <RefreshCw size={15} />}
             <span>REFRESH</span>
           </button>
         </div>
@@ -1009,7 +885,7 @@ export const GSInventory = () => {
           <label className="gsi-filter-label">Department</label>
           <select className="gsi-select" value={dept} onChange={e => setDept(e.target.value)}>
             <option value="">All Departments</option>
-            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
         <div className="gsi-filter">
@@ -1021,7 +897,26 @@ export const GSInventory = () => {
         </div>
         <div className="gsi-filter">
           <label className="gsi-filter-label">Search</label>
-          <input className="gsi-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Item name or ID..." />
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input
+              className="gsi-search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by item name, SKU code, or department..."
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{
+                  position: 'absolute', right: 8, background: 'transparent',
+                  border: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 13
+                }}
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1029,7 +924,7 @@ export const GSInventory = () => {
       {loading ? (
         <div className="gsi-loading">
           <SegmentedSpinner size={28} color="#2563EB" />
-          <span>Loading inventory...</span>
+          <span>Loading consumables inventory...</span>
         </div>
       ) : (
         <div className="gsi-table-card">
@@ -1041,44 +936,79 @@ export const GSInventory = () => {
             </div>
 
             {filtered.length === 0 ? (
-              <div className="gsi-empty">No items found. Adjust your filters or register new items.</div>
+              <div className="gsi-empty">
+                <p style={{ margin: '0 0 10px 0', fontSize: 15, fontWeight: 600, color: '#374151' }}>No inventory items found</p>
+                <p style={{ margin: 0, fontSize: 13, color: '#9CA3AF' }}>
+                  {dept || cat || search ? 'Try adjusting or clearing your filters to see more results.' : 'Register your first consumable item to start tracking store stock.'}
+                </p>
+                {(dept || cat || search) && (
+                  <button
+                    onClick={() => { setDept(''); setCat(''); setSearch(''); }}
+                    style={{
+                      marginTop: 14, height: 32, padding: '0 14px', background: '#EFF6FF',
+                      color: '#2563EB', border: '1px solid #BFDBFE', borderRadius: 6,
+                      fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                    }}
+                  >
+                    Reset All Filters
+                  </button>
+                )}
+              </div>
             ) : filtered.map((m, i) => {
-              const low = parseFloat(m.quantity_in_store) <= parseFloat(m.reorder_level || 10);
+              const low = parseFloat(m.quantity_in_store || 0) <= parseFloat(m.reorder_level || 10);
               const reorderLvl = parseInt(m.reorder_level) || 10;
               const deptC = deptColors[m.department] || '#6B7280';
               return (
-                <div key={m.id} className={`gsi-tr${low ? ' gsi-tr--low' : ''}`}>
+                <div key={m.id} className={`gsi-tr${low ? ' gsi-tr--low' : ''}`}>',
                   <div className="gsi-td gsi-td--idx gsi-num">{i + 1}</div>
-                  <div className="gsi-td gsi-td--strong">{m.material_name}</div>
-                  <div className="gsi-td">
-                    <span className="gsi-badge gsi-badge--cat">{m.category}</span>
+                  <div className="gsi-td gsi-td--strong">
+                    <div>
+                      <div>{m.material_name}</div>
+                      {m.material_id && <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}>{m.material_id}</div>}
+                    </div>
                   </div>
                   <div className="gsi-td">
-                    <span className="gsi-badge" style={{ background: `${deptC}1A`, color: deptC }}>{m.department}</span>
+                    <span className="gsi-badge gsi-badge--cat">{m.category || 'General'}</span>
                   </div>
-                  <div className={`gsi-td gsi-td--num gsi-num${low ? ' gsi-value-low' : ''}`}>{parseFloat(m.quantity_in_store).toLocaleString()}</div>
+                  <div className="gsi-td">
+                    <span className="gsi-badge" style={{ background: `${deptC}1A`, color: deptC, fontWeight: 600 }}>{m.department || 'General'}</span>
+                  </div>
+                  <div className={`gsi-td gsi-td--num gsi-num${low ? ' gsi-value-low' : ''}`}>',
+                    {parseFloat(m.quantity_in_store || 0).toLocaleString()}
+                  </div>
                   <div className="gsi-td gsi-td--num gsi-num">{reorderLvl}</div>
-                  <div className="gsi-td gsi-td--num gsi-td--dim">{m.unit}</div>
-                  <div className="gsi-td gsi-td--num gsi-num">{m.unit_value > 0 ? `ETB ${parseFloat(m.unit_value).toLocaleString()}` : '— Not Set'}</div>
-                  <div className="gsi-td gsi-td--num gsi-num gsi-td--strong">{m.total_value > 0 ? `ETB ${parseFloat(m.total_value).toLocaleString()}` : '—'}</div>
+                  <div className="gsi-td gsi-td--num gsi-td--dim">{m.unit || 'unit'}</div>
+                  <div className="gsi-td gsi-td--num gsi-num">
+                    {m.unit_value > 0 ? `ETB ${parseFloat(m.unit_value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '— Not Set'}
+                  </div>
+                  <div className="gsi-td gsi-td--num gsi-num gsi-td--strong">
+                    {m.total_value > 0 ? `ETB ${parseFloat(m.total_value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
+                  </div>
                   <div className="gsi-td">
                     {low
-                      ? <span className="gsi-badge gsi-badge--low"><AlertTriangle size={18} /> LOW</span>
+                      ? <span className="gsi-badge gsi-badge--low"><AlertTriangle size={13} style={{ marginRight: 3 }} /> LOW</span>
                       : <span className="gsi-badge gsi-badge--ok">✓ OK</span>}
                   </div>
                   <div className="gsi-td">
                     {m.pending_approval ? (
-                      <span className="gsi-badge" style={{ background: '#FEF3C7', color: '#92400E' }}>ⳳ WAITING CEO</span>
+                      <span className="gsi-badge gsi-badge--pending" title="Update request sent to CEO for approval">
+                        ⏳ Awaiting CEO
+                      </span>
                     ) : (
-                      <button className="gsi-upd-btn" onClick={() => setUpdatingItem({ ...m })}>✓ UPDATE</button>
+                      <button className="gsi-upd-btn" onClick={() => setUpdatingItem({ ...m })}>
+                        ✓ UPDATE
+                      </button>
                     )}
                   </div>
                 </div>
               );
             })}
+
             {filtered.length > 0 && (
               <div className="gsi-tr gsi-tr--grand-total">
-                <div className="gsi-td" style={{ gridColumn: '1 / 9', textAlign: 'right', paddingRight: '12px' }}>GRAND TOTAL VALUE:</div>
+                <div className="gsi-td" style={{ gridColumn: '1 / 9', textAlign: 'right', paddingRight: '12px' }}>
+                  GRAND TOTAL VALUE:
+                </div>
                 <div className="gsi-td gsi-td--num" style={{ gridColumn: '9 / 10' }}>
                   ETB {filtered.reduce((s, m) => s + parseFloat(m.total_value || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </div>
@@ -1089,12 +1019,228 @@ export const GSInventory = () => {
 
           {filtered.length > 0 && (
             <div className="gsi-foot">
-              <span>Showing {filtered.length} of {items.length} items</span>
+              <span>Showing {filtered.length} of {items.length} consumables</span>
+              <span className="gsi-foot-total">
+                Total Stock Quantity: {filtered.reduce((s, m) => s + parseFloat(m.quantity_in_store || 0), 0).toLocaleString()} units
+              </span>
             </div>
           )}
         </div>
       )}
 
+      {/* ── UPDATE MATERIAL MODAL (RENDERED AS OVERLAY) ── */}
+      {updatingItem && (() => {
+        const qty = parseFloat(updatingItem.quantity_in_store) || 0;
+        const price = parseFloat(updatingItem.unit_value) || 0;
+        const total = qty * price;
+        const vatRate = updatingItem.vat_rate != null ? parseFloat(updatingItem.vat_rate) : 15;
+        const inputVatUnit = (price * (vatRate / 100));
+        const inputVatTotal = (total * (vatRate / 100));
+        const modalDepts = Array.from(new Set([...DEPARTMENTS, 'Retail', updatingItem.department].filter(Boolean)));
+
+        return (
+          <div
+            className="gsi-modal-wrap"
+            onClick={e => { if (e.target === e.currentTarget && !saving) setUpdatingItem(null); }}
+          >
+            <div className="gsi-modal" role="dialog" aria-modal="true" aria-label={`Update Material ${updatingItem.material_id || ''}`}>
+              <div className="gsi-modal-head">
+                <div>
+                  <h2 className="gsi-modal-title">
+                    Update Material {updatingItem.material_id && <span className="gsi-modal-id">{updatingItem.material_id}</span>}
+                  </h2>
+                  <p className="gsi-modal-sub">General Store Inventory Control &amp; Reorder Management</p>
+                </div>
+                <button className="gsi-modal-close" onClick={() => !saving && setUpdatingItem(null)} aria-label="Close">✕</button>
+              </div>
+
+              <div className="gsi-modal-body">
+                <div>
+                  <div className="gsi-fieldset-title">Material Details</div>
+                  <div className="gsi-grid-2">
+                    <div className="gsi-field">
+                      <label className="gsi-label">Item Name *</label>
+                      <input
+                        className="gsi-input"
+                        value={updatingItem.material_name ?? ''}
+                        onChange={e => setUpdatingItem({ ...updatingItem, material_name: e.target.value })}
+                        placeholder="e.g. Printer Toner HP-85A"
+                      />
+                    </div>
+                    <div className="gsi-field">
+                      <label className="gsi-label">Category</label>
+                      <select
+                        className="gsi-input"
+                        value={updatingItem.category ?? 'Other'}
+                        onChange={e => setUpdatingItem({ ...updatingItem, category: e.target.value })}
+                      >
+                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="gsi-field">
+                      <label className="gsi-label">Department</label>
+                      {!customDept ? (
+                        <div className="gsi-dept-row">
+                          <select
+                            className="gsi-input"
+                            value={updatingItem.department ?? ''}
+                            onChange={e => setUpdatingItem({ ...updatingItem, department: e.target.value })}
+                          >
+                            <option value="">-- Select Department --</option>
+                            {modalDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                          <button className="gsi-icon-btn" onClick={() => setCustomDept(true)} title="Type custom department">+</button>
+                        </div>
+                      ) : (
+                        <div className="gsi-dept-row">
+                          <input
+                            className="gsi-input"
+                            value={updatingItem.department ?? ''}
+                            onChange={e => setUpdatingItem({ ...updatingItem, department: e.target.value })}
+                            placeholder="Type custom department name..."
+                          />
+                          <button
+                            className="gsi-icon-btn gsi-icon-btn--danger"
+                            onClick={() => { setCustomDept(false); setUpdatingItem({ ...updatingItem, department: 'Printing' }); }}
+                            title="Reset to select"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="gsi-fieldset-title">Inventory &amp; Pricing</div>
+                  <div className="gsi-grid-2">
+                    <div className="gsi-field">
+                      <label className="gsi-label">Unit of Measure (e.g. pcs, roll, box)</label>
+                      <input
+                        className="gsi-input"
+                        type="text"
+                        value={updatingItem.unit ?? ''}
+                        onChange={e => setUpdatingItem({ ...updatingItem, unit: e.target.value })}
+                      />
+                    </div>
+                    <div className="gsi-field">
+                      <label className="gsi-label">Quantity in Store</label>
+                      <input
+                        className="gsi-input"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={updatingItem.quantity_in_store ?? ''}
+                        onChange={e => setUpdatingItem({ ...updatingItem, quantity_in_store: e.target.value })}
+                      />
+                    </div>
+                    <div className="gsi-field">
+                      <label className="gsi-label">Cost Price / Unit (ETB)</label>
+                      <input
+                        className="gsi-input"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={updatingItem.unit_value ?? ''}
+                        onChange={e => setUpdatingItem({ ...updatingItem, unit_value: e.target.value })}
+                      />
+                    </div>
+                    <div className="gsi-field">
+                      <label className="gsi-label">Reorder Level (Alert Threshold)</label>
+                      <input
+                        className="gsi-input"
+                        type="number"
+                        min="0"
+                        value={updatingItem.reorder_level ?? ''}
+                        onChange={e => setUpdatingItem({ ...updatingItem, reorder_level: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Input VAT config */}
+                  <div style={{ marginTop: 16, padding: '12px 16px', background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <input
+                        type="checkbox"
+                        id="upd_vat_toggle"
+                        checked={!!updatingItem.has_input_vat}
+                        onChange={e => setUpdatingItem({ ...updatingItem, has_input_vat: e.target.checked })}
+                        style={{ width: 15, height: 15, accentColor: '#D97706', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="upd_vat_toggle" style={{ fontSize: 13, fontWeight: 700, color: '#92400E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Receipt size={16} /> Purchased with Input VAT (VAT-registered supplier)
+                      </label>
+                    </div>
+                    {updatingItem.has_input_vat && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div className="gsi-field" style={{ marginBottom: 0 }}>
+                          <label className="gsi-label">VAT Rate (%)</label>
+                          <select
+                            className="gsi-input"
+                            value={updatingItem.vat_rate || 15}
+                            onChange={e => setUpdatingItem({ ...updatingItem, vat_rate: parseFloat(e.target.value) })}
+                          >
+                            <option value={15}>15% (Standard)</option>
+                            <option value={10}>10%</option>
+                            <option value={5}>5%</option>
+                            <option value={0}>0% (Exempt)</option>
+                          </select>
+                        </div>
+                        <div className="gsi-field" style={{ marginBottom: 0 }}>
+                          <label className="gsi-label">Input VAT per Unit (ETB)</label>
+                          <input
+                            className="gsi-input"
+                            type="number"
+                            readOnly
+                            value={inputVatUnit.toFixed(2)}
+                            style={{ background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}
+                          />
+                        </div>
+                        <div className="gsi-field" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
+                          <label className="gsi-label" style={{ color: '#92400E' }}>Total Input VAT this batch (Qty × VAT/unit)</label>
+                          <input
+                            className="gsi-input"
+                            type="number"
+                            readOnly
+                            value={inputVatTotal.toFixed(2)}
+                            style={{ background: '#FEF3C7', color: '#B45309', fontWeight: 700 }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="gsi-modal-foot">
+                <div className="gsi-total">
+                  <span className="gsi-total-label">
+                    {updatingItem.has_input_vat ? 'Stock Value (excl. VAT)' : 'Estimated Total Value'}
+                  </span>
+                  <span className="gsi-total-value">ETB {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                {updatingItem.has_input_vat && (
+                  <div style={{ fontSize: 13, color: '#D97706', fontWeight: 600, padding: '4px 0' }}>
+                    Input VAT: ETB {inputVatTotal.toFixed(2)} | Total incl. VAT: ETB {(total + inputVatTotal).toFixed(2)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="gsi-refresh" onClick={() => !saving && setUpdatingItem(null)} disabled={saving}>
+                    CANCEL
+                  </button>
+                  <button className="gsi-save" onClick={submitUpdate} disabled={saving}>
+                    {saving && <SegmentedSpinner size={16} color="#fff" />}
+                    <span>{saving ? 'SUBMITTING...' : 'SUBMIT UPDATE'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── TOAST ── */}
       {toast && (
         <div className={`gsi-toast gsi-toast--${toast.type}`}>
           <span className="gsi-toast-icon">{toast.type === 'success' ? '✓' : '✕'}</span>
@@ -1105,54 +1251,74 @@ export const GSInventory = () => {
   );
 };
 
-/* ─── 3. REGISTER NEW ITEM ──────────────────────────────────────────────── */
+/* ─── 3. REGISTER NEW ITEM ─────────────────────────────────────────────── */
 const GSR_CSS = `
   .gsr-reg { box-sizing: border-box; width: 100%; min-height: 100%; background: var(--color-bg-page, #F5F6FA); color: var(--color-text-primary, #111827); font-family: 'Inter','Segoe UI',system-ui,-apple-system,'Roboto',sans-serif; }
   .gsr-reg *, .gsr-reg *::before, .gsr-reg *::after { box-sizing: border-box; }
-  .gsr-reg button, .gsr-reg input, .gsr-reg select { font-family: inherit; }
+  .gsr-reg button, .gsr-reg input, .gsr-reg select, .gsr-reg textarea { font-family: inherit; }
 
   /* ── Toast ── */
   @keyframes gsrToastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .gsr-toast { position: fixed; right: 24px; bottom: 24px; z-index: 10000; max-width: 380px; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px; border-left: 4px solid rgba(255,255,255,0.55); background: var(--color-text-primary, #111827); color: #fff; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,0.18); animation: gsrToastIn 200ms ease; }
+  .gsr-toast { position: fixed; right: 24px; bottom: 24px; z-index: 10000; max-width: 440px; display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 10px; border-left: 4px solid rgba(255,255,255,0.55); background: var(--color-text-primary, #111827); color: #fff; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,0.18); animation: gsrToastIn 200ms ease; }
   .gsr-toast--success { background: var(--color-success, #16A34A); }
   .gsr-toast--error { background: var(--color-danger, #DC2626); }
   .gsr-toast-icon { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,0.24); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
 
   /* ── Header ── */
   .gsr-header { margin-bottom: 24px; }
-  .gsr-title { margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--color-text-primary, #111827); display: flex; align-items: center; gap: 10px; }
+  .gsr-header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  .gsr-title { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; color: var(--color-text-primary, #111827); display: flex; align-items: center; gap: 10px; }
   .gsr-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--color-text-secondary, #6B7280); }
-  .gsr-progress { margin-top: 16px; width: 100%; max-width: 420px; height: 6px; border-radius: 9999px; background: #F3F4F6; overflow: hidden; }
-  .gsr-progress-fill { height: 100%; border-radius: 9999px; background: var(--color-primary, #2563EB); transition: width 300ms ease; }
+  .gsr-header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .gsr-top-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; background: #fff; color: #1E40AF; border: 1.5px solid #BFDBFE; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 150ms ease; }
+  .gsr-top-btn:hover { background: #EFF6FF; border-color: #93C5FD; }
+  .gsr-income-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; background: #F0FDF4; color: #15803D; border: 1.5px solid #BBF7D0; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 150ms ease; }
+  .gsr-income-btn:hover { background: #DCFCE7; }
+  .gsr-income-badge { background: #16A34A; color: #fff; border-radius: 50%; min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; padding: 0 6px; }
+  .gsr-income-bar { margin-top: 12px; padding: 10px 16px; background: #ECFDF5; border: 1.5px dashed #34D399; border-radius: 8px; font-size: 13px; color: #065F46; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer; }
+  .gsr-income-bar:hover { background: #D1FAE5; }
+  .gsr-income-cta { font-weight: 700; text-decoration: underline; white-space: nowrap; }
+
+  /* ── Type Switcher Tabs ── */
+  .gsr-type-switcher { display: flex; gap: 8px; margin-bottom: 20px; background: #E5E7EB; padding: 4px; border-radius: 10px; width: fit-content; }
+  .gsr-type-tab { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border: none; border-radius: 8px; background: transparent; color: #4B5563; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 150ms ease; }
+  .gsr-type-tab--active { background: #fff; color: #111827; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-weight: 700; }
+
+  /* ── Linked Shipment Banner ── */
+  .gsr-linked-banner { margin-bottom: 20px; padding: 12px 16px; background: #F0FDF4; border: 1.5px solid #86EFAC; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .gsr-linked-info { display: flex; align-items: center; gap: 10px; color: #166534; font-size: 13px; font-weight: 600; }
+  .gsr-linked-cancel { background: transparent; border: none; color: #DC2626; font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 2px 6px; }
 
   /* ── Layout ── */
   .gsr-main { display: grid; grid-template-columns: 1fr 360px; gap: 24px; align-items: start; }
   .gsr-cols { display: flex; flex-direction: column; gap: 20px; }
   .gsr-card { background: var(--color-bg-card, #fff); border: 1px solid var(--color-border, #E5E7EB); border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); overflow: hidden; }
-  .gsr-card-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--color-border, #E5E7EB); background: #F9FAFB; }
+  .gsr-card-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--color-border, #E5E7EB); background: #F9FAFB; }
+  .gsr-card-head-left { display: flex; align-items: center; gap: 10px; }
   .gsr-card-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary, #111827); }
   .gsr-card-body { padding: 20px; }
 
   /* ── Fields ── */
   .gsr-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .gsr-field { display: flex; flex-direction: column; gap: 6px; }
-  .gsr-label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary, #6B7280); }
-  .gsr-input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--color-border, #E5E7EB); border-radius: 8px; background: #fff; color: var(--color-text-primary, #111827); font-size: 14px; transition: border-color 150ms ease-in-out, box-shadow 150ms ease-in-out; }
-  .gsr-input:focus { outline: none; border-color: var(--color-primary, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+  .gsr-label { font-size: 12px; font-weight: 600; color: var(--color-text-secondary, #4B5563); }
+  .gsr-input { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--color-border, #D1D5DB); border-radius: 8px; background: #fff; color: var(--color-text-primary, #111827); font-size: 14px; transition: border-color 150ms ease, box-shadow 150ms ease; }
+  .gsr-input:focus { outline: none; border-color: var(--color-primary, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
   .gsr-input--money { font-weight: 600; font-variant-numeric: tabular-nums; }
   .gsr-dept-row { display: flex; gap: 8px; }
   .gsr-dept-row .gsr-input { flex: 1; min-width: 0; }
-  .gsr-icon-btn { flex-shrink: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--color-border, #E5E7EB); border-radius: 8px; background: #fff; color: var(--color-success, #16A34A); font-size: 18px; cursor: pointer; transition: background 150ms ease-in-out, border-color 150ms ease-in-out, color 150ms ease-in-out; }
-  .gsr-icon-btn:hover { background: #FEFCE8; border-color: #FDE68A; color: #B45309; }
+  .gsr-icon-btn { flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--color-border, #D1D5DB); border-radius: 8px; background: #F9FAFB; color: var(--color-success, #16A34A); font-size: 18px; cursor: pointer; transition: all 150ms ease; }
+  .gsr-icon-btn:hover { background: #ECFDF5; border-color: #A7F3D0; color: #059669; }
   .gsr-icon-btn--danger { color: var(--color-danger, #DC2626); }
-  .gsr-icon-btn--danger:hover { background: var(--color-danger-bg, #FEE2E2); border-color: #FECACA; color: var(--color-danger, #DC2626); }
+  .gsr-icon-btn--danger:hover { background: #FEE2E2; border-color: #FECACA; color: #DC2626; }
 
   /* ── Submit ── */
-  .gsr-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .gsr-submit { height: 40px; padding: 0 24px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: none; border-radius: 8px; background: var(--color-primary, #2563EB); color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 150ms ease-in-out, box-shadow 150ms ease-in-out, transform 150ms ease-in-out; }
-  .gsr-submit:hover:not(:disabled) { background: #EAB308; color: #78350F; box-shadow: 0 4px 12px rgba(234,179,8,0.3); transform: translateY(-1px); }
+  .gsr-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+  .gsr-submit { height: 42px; padding: 0 28px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: none; border-radius: 8px; background: #16A34A; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 150ms ease; box-shadow: 0 2px 4px rgba(22,163,74,0.2); }
+  .gsr-submit:hover:not(:disabled) { background: #15803D; transform: translateY(-1px); box-shadow: 0 4px 8px rgba(22,163,74,0.3); }
   .gsr-submit:disabled { opacity: 0.55; cursor: not-allowed; }
-  .gsr-submit:focus-visible { outline: 3px solid rgba(234,179,8,0.45); outline-offset: 2px; }
+  .gsr-reset-btn { height: 42px; padding: 0 18px; border: 1px solid #D1D5DB; background: #fff; color: #4B5563; font-size: 13px; font-weight: 600; border-radius: 8px; cursor: pointer; transition: all 150ms ease; }
+  .gsr-reset-btn:hover { background: #F3F4F6; }
 
   /* ── Right summary panel ── */
   .gsr-side { position: sticky; top: 0; display: flex; flex-direction: column; gap: 20px; }
@@ -1161,7 +1327,7 @@ const GSR_CSS = `
   .gsr-calc-value { color: var(--color-text-primary, #111827); font-weight: 600; font-variant-numeric: tabular-nums; }
   .gsr-calc-total { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 0 0; }
   .gsr-calc-total-label { font-size: 13px; font-weight: 600; color: var(--color-text-primary, #111827); }
-  .gsr-calc-total-value { font-size: 22px; font-weight: 600; color: var(--color-primary, #2563EB); font-variant-numeric: tabular-nums; }
+  .gsr-calc-total-value { font-size: 22px; font-weight: 700; color: #16A34A; font-variant-numeric: tabular-nums; }
   .gsr-reorder-note { display: flex; gap: 8px; margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: var(--color-warning-bg, #FEF3C7); border-left: 3px solid var(--color-warning, #D97706); font-size: 12px; color: #92400E; line-height: 1.5; }
   .gsr-reorder-note strong { color: var(--color-warning, #D97706); }
   .gsr-preview-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; border-bottom: 1px solid #F3F4F6; font-size: 13px; }
@@ -1175,6 +1341,15 @@ const GSR_CSS = `
   .gsr-tip:last-child { margin-bottom: 0; }
   .gsr-tip-arrow { color: var(--color-primary, #2563EB); font-weight: 700; flex-shrink: 0; }
 
+  /* ── Recent Items Table ── */
+  .gsr-recent-wrap { margin-top: 28px; }
+  .gsr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .gsr-table th { text-align: left; padding: 10px 14px; background: #F9FAFB; font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em; color: #6B7280; border-bottom: 1px solid #E5E7EB; }
+  .gsr-table td { padding: 11px 14px; border-bottom: 1px solid #F3F4F6; vertical-align: middle; }
+  .gsr-table tr:hover td { background: #F9FAFB; }
+  .gsr-table tr:last-child td { border-bottom: none; }
+  .gsr-table-id { font-family: monospace; font-weight: 700; color: #1E40AF; background: #EFF6FF; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+
   /* ── Responsive ── */
   @media (max-width: 1024px) {
     .gsr-main { grid-template-columns: 1fr; }
@@ -1183,56 +1358,59 @@ const GSR_CSS = `
   @media (max-width: 768px) {
     .gsr-grid-2 { grid-template-columns: 1fr; }
     .gsr-title { font-size: 22px; }
+    .gsr-header-top { flex-direction: column; align-items: stretch; }
+    .gsr-header-actions { justify-content: flex-start; }
   }
-  @media (max-width: 480px) {
-    .gsr-submit { width: 100%; height: 44px; }
-    .gsr-input { height: 44px; }
-    .gsr-icon-btn { width: 44px; height: 44px; }
-  }
-  .gsr-income-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; background: #FFF8E1; color: #8D6E63; border: 2px solid #A5D6A7; border-radius: 8px; font-weight: 800; font-size: 13px; cursor: pointer; box-shadow: 3px 3px 0 #A5D6A7; }
-  .gsr-income-btn:hover { background: #FFFDE7; }
-  .gsr-income-badge { background: #228B22; color: #fff; border-radius: 50%; min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; padding: 0 6px; }
-  .gsr-income-bar { margin-top: 10px; padding: 10px 14px; background: #E8F5E9; border: 1.5px dashed #66BB6A; border-radius: 8px; font-size: 13px; color: #2E7D32; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer; }
-  .gsr-income-bar:hover { background: #DCEDC8; }
-  .gsr-income-cta { font-weight: 800; text-decoration: underline; white-space: nowrap; }
+
+  /* ── Incoming Modal ── */
   .gsr-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; }
-  .gsr-inc-modal { background: #fff; border-radius: 14px; width: 760px; max-width: 100%; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
-  .gsr-inc-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 2px solid #A5D6A7; }
-  .gsr-inc-title { font-size: 16px; font-weight: 800; color: #1B5E20; flex: 1; }
-  .gsr-inc-close { background: none; border: none; font-size: 18px; color: #8D6E63; cursor: pointer; padding: 4px; }
-  .gsr-inc-tabs { display: flex; gap: 8px; padding: 12px 20px 0; }
-  .gsr-inc-tab { padding: 7px 16px; border-radius: 8px 8px 0 0; border: 1.5px solid #C8E6C9; border-bottom: none; background: #EEF6EC; color: #33691E; font-size: 12px; font-weight: 800; cursor: pointer; }
-  .gsr-inc-tab--on { background: #228B22; color: #fff; border-color: #228B22; }
+  .gsr-inc-modal { background: #fff; border-radius: 14px; width: 780px; max-width: 100%; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+  .gsr-inc-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #E5E7EB; background: #F9FAFB; }
+  .gsr-inc-title { font-size: 16px; font-weight: 700; color: #111827; flex: 1; }
+  .gsr-inc-close { background: none; border: none; font-size: 18px; color: #6B7280; cursor: pointer; padding: 4px; }
+  .gsr-inc-tabs { display: flex; gap: 8px; padding: 12px 20px 0; border-bottom: 1px solid #E5E7EB; }
+  .gsr-inc-tab { padding: 8px 18px; border-radius: 8px 8px 0 0; border: 1px solid #E5E7EB; border-bottom: none; background: #F3F4F6; color: #4B5563; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .gsr-inc-tab--on { background: #16A34A; color: #fff; border-color: #16A34A; }
   .gsr-inc-body { padding: 16px 20px 20px; overflow-y: auto; }
-  .gsr-inc-empty { text-align: center; padding: 34px 16px; color: #424242; background: #F9FBE7; border: 2px dashed #CDDC39; border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
-  .gsr-inc-card { border: 1.5px solid #C8E6C9; border-radius: 10px; padding: 14px; margin-bottom: 14px; background: #FCFDF8; }
-  .gsr-inc-card--active { border-color: #228B22; box-shadow: 4px 4px 0 #C8E6C9; }
-  .gsr-inc-status { background: #FFF8E1; color: #F57F17; font-size: 11px; font-weight: 900; letter-spacing: 0.06em; padding: 3px 10px; border-radius: 20px; }
+  .gsr-inc-empty { text-align: center; padding: 36px 16px; color: #6B7280; background: #F9FAFB; border: 2px dashed #D1D5DB; border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .gsr-inc-card { border: 1.5px solid #E5E7EB; border-radius: 10px; padding: 14px; margin-bottom: 14px; background: #fff; }
+  .gsr-inc-card--active { border-color: #16A34A; box-shadow: 0 4px 12px rgba(22,163,74,0.12); }
+  .gsr-inc-status { background: #FEF3C7; color: #D97706; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 20px; }
   .gsr-inc-status--ok { background: #DCFCE7; color: #15803D; }
   .gsr-inc-items { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
-  .gsr-inc-items th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #8D6E63; padding: 6px 8px; border-bottom: 1px solid #E0E0E0; }
-  .gsr-inc-items td { padding: 6px 8px; border-bottom: 1px solid #F1F1F1; }
-  .gsr-inc-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-  .gsr-inc-btn { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; border: none; }
-  .gsr-inc-btn--ghost { background: #F1F8E9; color: #558B2F; border: 1.5px solid #AED581; }
-  .gsr-inc-btn--primary { background: #228B22; color: #fff; box-shadow: 3px 3px 0 #1B5E20; }
+  .gsr-inc-items th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6B7280; padding: 6px 8px; border-bottom: 1px solid #E5E7EB; }
+  .gsr-inc-items td { padding: 6px 8px; border-bottom: 1px solid #F3F4F6; }
+  .gsr-inc-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .gsr-inc-btn { padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 6px; }
+  .gsr-inc-btn--ghost { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+  .gsr-inc-btn--primary { background: #16A34A; color: #fff; }
   .gsr-inc-btn--primary:disabled { opacity: 0.6; cursor: not-allowed; }
 `;
 
 export const GSRegisterItem = () => {
-  const [form, setForm]   = useState({ material_name: '', category: 'Paper', unit: 'roll', quantity_in_store: 0, department: 'Printing', unit_value: 0, reorder_level: 10, has_input_vat: false, vat_rate: 15 });
-  const [saving, setSaving]   = useState(false);
-  const [toast, setToast]     = useState(null);
-  const [focused, setFocused] = useState(null);
+  const [regType, setRegType] = useState('material'); // 'material' | 'machine'
+  const [form, setForm] = useState({
+    material_name: '',
+    category: 'Paper',
+    unit: 'roll',
+    quantity_in_store: '',
+    department: 'Printing',
+    unit_value: '',
+    reorder_level: '10',
+    has_input_vat: false,
+    vat_rate: 15,
+  });
+  const [machineForm, setMachineForm] = useState({
+    machine_name: '',
+    model_serial: '',
+    department: 'Printing',
+    condition_notes: '',
+  });
+
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
   const [customDept, setCustomDept] = useState(false);
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const qty     = parseFloat(form.quantity_in_store) || 0;
-  const price   = parseFloat(form.unit_value) || 0;
-  const total   = qty * price;
-  const reorder = parseInt(form.reorder_level) || 10;
-
-  const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4500); };
+  const [customCat, setCustomCat] = useState(false);
 
   const [incomingList, setIncomingList] = useState([]);
   const [acceptedList, setAcceptedList] = useState([]);
@@ -1241,6 +1419,48 @@ export const GSRegisterItem = () => {
   const [receiving, setReceiving] = useState(false);
   const [selectedInc, setSelectedInc] = useState(null);
   const [acceptTarget, setAcceptTarget] = useState(null);
+
+  const [recentItems, setRecentItems] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+
+  const setMat = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const setMac = (k, v) => setMachineForm(f => ({ ...f, [k]: v }));
+
+  const qty = parseFloat(form.quantity_in_store) || 0;
+  const price = parseFloat(form.unit_value) || 0;
+  const total = qty * price;
+  const reorder = parseInt(form.reorder_level) || 0;
+
+  const showToast = (type, msg) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  const nav = (path) => {
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const getLoggedInUser = () => {
+    try {
+      const u = localStorage.getItem('user') || sessionStorage.getItem('user');
+      return u ? JSON.parse(u) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+  const currentUser = getLoggedInUser();
+  const userFullName = currentUser?.full_name || currentUser?.fullName || currentUser?.username || 'Store Keeper';
+
+  const fetchRecent = async () => {
+    setLoadingRecent(true);
+    try {
+      const res = await api.get('/api/v1/printing-assets/store/materials');
+      const list = res?.data?.data || [];
+      setRecentItems(Array.isArray(list) ? list.slice(0, 5) : []);
+    } catch (e) { /* non-fatal */ }
+    setLoadingRecent(false);
+  };
 
   const fetchIncoming = async () => {
     try {
@@ -1260,6 +1480,7 @@ export const GSRegisterItem = () => {
 
   useEffect(() => {
     fetchIncoming();
+    fetchRecent();
     const timer = setInterval(fetchIncoming, 20000);
     return () => clearInterval(timer);
   }, []);
@@ -1271,33 +1492,25 @@ export const GSRegisterItem = () => {
     await Promise.all([fetchIncoming(), fetchAccepted()]);
   };
 
-  const autoFill = (it) => {
-    if (!it) return;
-    setForm(f => ({
-      ...f,
-      material_name: f.material_name || it.item_description || '',
-      category: f.category === 'Paper' && it.item_description ? 'Other' : f.category,
-      unit: f.unit === 'roll' && it.unit ? it.unit : f.unit,
-      quantity_in_store: f.quantity_in_store || parseFloat(it.quantity) || 0,
-      unit_value: f.unit_value || parseFloat(it.unit_price) || 0,
-    }));
-    setShowIncoming(false);
-    showToast('success', `Auto-filled "${it.item_description || 'item'}" from incoming shipment — review & press Register Item.`);
-  };
-
   const acceptItem = (inc, item) => {
     if (!item) return;
-    setAcceptTarget({ incomingId: inc.id, itemId: item.id });
+    setAcceptTarget({
+      incomingId: inc.id,
+      itemId: item.id,
+      itemDesc: item.item_description,
+      deliveryNote: inc.delivery_note_no || `Inc-${inc.id}`
+    });
+    setRegType('material');
     setForm(f => ({
       ...f,
-      material_name: f.material_name || item.item_description || '',
+      material_name: item.item_description || f.material_name,
       category: f.category === 'Paper' && item.item_description ? 'Other' : f.category,
-      unit: f.unit === 'roll' && item.unit ? item.unit : f.unit,
-      quantity_in_store: f.quantity_in_store || parseFloat(item.quantity) || 0,
-      unit_value: f.unit_value || parseFloat(item.unit_price) || 0,
+      unit: item.unit || f.unit || 'unit',
+      quantity_in_store: String(parseFloat(item.quantity) || 0),
+      unit_value: String(parseFloat(item.unit_price) || 0),
     }));
     setShowIncoming(false);
-    showToast('success', `"${item.item_description}" selected — fill the remaining fields & press Register Item to accept just this product.`);
+    showToast('success', `"${item.item_description}" linked — verify details and submit to register.`);
   };
 
   const acceptShipment = async (inc) => {
@@ -1306,16 +1519,7 @@ export const GSRegisterItem = () => {
     try {
       const res = await api.post(`/api/v1/printing-assets/store/incoming/${inc.id}/accept`);
       showToast('success', res?.data?.message || 'Shipment received and added to inventory.');
-      const got = res?.data?.data?.items;
-      if (got && got.length) {
-        setForm(f => ({
-          ...f,
-          material_name: f.material_name || got[0].material_name || '',
-          unit: f.unit || 'unit',
-          quantity_in_store: f.quantity_in_store || parseFloat(got[0].qty) || 0,
-        }));
-      }
-      await Promise.all([fetchIncoming(), fetchAccepted()]);
+      await Promise.all([fetchIncoming(), fetchAccepted(), fetchRecent()]);
       setSelectedInc(null);
     } catch (e) {
       showToast('error', e.response?.data?.message || 'Failed to receive shipment');
@@ -1323,30 +1527,107 @@ export const GSRegisterItem = () => {
     setReceiving(false);
   };
 
-  const submit = async () => {
-    if (!form.material_name.trim()) return showToast('error', 'Item Name is required');
-    if (!form.department)           return showToast('error', 'Department is required');
+  const submitMaterial = async () => {
+    if (!form.material_name || !form.material_name.trim()) return showToast('error', 'Item Name is required');
+    if (!form.department || !form.department.trim()) return showToast('error', 'Department is required');
+    if (!form.unit || !form.unit.trim()) return showToast('error', 'Unit of Measure is required');
+
+    const qtyVal = parseFloat(form.quantity_in_store);
+    if (isNaN(qtyVal) || qtyVal < 0) return showToast('error', 'Opening Quantity must be 0 or greater');
+
+    const priceVal = parseFloat(form.unit_value);
+    if (isNaN(priceVal) || priceVal < 0) return showToast('error', 'Cost Price must be 0 or greater');
+
+    const reorderVal = parseInt(form.reorder_level);
+    if (isNaN(reorderVal) || reorderVal < 0) return showToast('error', 'Reorder Level must be 0 or greater');
+
     setSaving(true);
     try {
-      await api.post('/api/v1/printing-assets/store/materials', form);
+      const payload = {
+        material_name: form.material_name.trim(),
+        category: form.category || 'Other',
+        unit: form.unit.trim(),
+        quantity_in_store: qtyVal,
+        unit_value: priceVal,
+        reorder_level: reorderVal,
+        department: form.department.trim(),
+        registered_by: userFullName,
+        has_input_vat: !!form.has_input_vat,
+        vat_rate: form.vat_rate || 15,
+      };
+
+      const res = await api.post('/api/v1/printing-assets/store/materials', payload);
+      const generatedId = res?.data?.data?.material_id || 'Item';
+
       let acceptMsg = '';
-if (acceptTarget) {
-  try {
-  const ar = await api.post(`/api/v1/printing-assets/store/incoming/${acceptTarget.incomingId}/accept`, { item_id: acceptTarget.itemId });
-  const info = ar?.data?.data || {};
-  if (info.shipment_complete) {
-    acceptMsg = ` · Shipment complete (${info.percent}%) — purchase marked received & expense paid.`;
-  } else {
-    acceptMsg = ` · ${info.received_count} of ${info.item_count || '?'} items accepted — ETB ${Number(info.received_value || 0).toLocaleString(undefined,{maximumFractionDigits:0})} / ${Number(info.total_value || 0).toLocaleString(undefined,{maximumFractionDigits:0})} (${info.percent}%) — keep registering remaining products.`;
-  }
-  setAcceptTarget(null);
-} catch (ae) { acceptMsg = ` · Item saved, but shipment accept failed (${ae.response?.data?.message || 'error'}).`; }
-}
-showToast('success', `"${form.material_name}" registered — ETB ${total.toLocaleString(undefined,{minimumFractionDigits:2})} total${acceptMsg}`);
-      setForm({ material_name: '', category: 'Paper', unit: 'roll', quantity_in_store: 0, department: 'Printing', unit_value: 0, reorder_level: 10, has_input_vat: false, vat_rate: 15 });
+      if (acceptTarget) {
+        try {
+          const ar = await api.post(`/api/v1/printing-assets/store/incoming/${acceptTarget.incomingId}/accept`, { item_id: acceptTarget.itemId });
+          const info = ar?.data?.data || {};
+          if (info.shipment_complete) {
+            acceptMsg = ` · Shipment complete (${info.percent}%) — marked received.`;
+          } else {
+            acceptMsg = ` · ${info.received_count} item(s) accepted (${info.percent}%).`;
+          }
+          setAcceptTarget(null);
+        } catch (ae) {
+          acceptMsg = ` · Item saved, but shipment status update failed (${ae.response?.data?.message || 'error'}).`;
+        }
+      }
+
+      showToast('success', `"${form.material_name.trim()}" registered (${generatedId}) — ETB ${(qtyVal * priceVal).toLocaleString(undefined, { minimumFractionDigits: 2 })} total${acceptMsg}`);
+      setForm({
+        material_name: '',
+        category: 'Paper',
+        unit: 'roll',
+        quantity_in_store: '',
+        department: 'Printing',
+        unit_value: '',
+        reorder_level: '10',
+        has_input_vat: false,
+        vat_rate: 15,
+      });
       setCustomDept(false);
-      await Promise.all([fetchIncoming(), fetchAccepted()]);
-    } catch (e) { showToast('error', e.response?.data?.message || 'Registration failed'); }
+      setCustomCat(false);
+      await Promise.all([fetchIncoming(), fetchAccepted(), fetchRecent()]);
+    } catch (e) {
+      showToast('error', e.response?.data?.message || 'Registration failed');
+    }
+    setSaving(false);
+  };
+
+  const submitMachine = async () => {
+    if (!machineForm.machine_name || !machineForm.machine_name.trim()) {
+      return showToast('error', 'Machine / Asset Name is required');
+    }
+    if (!machineForm.department || !machineForm.department.trim()) {
+      return showToast('error', 'Department is required');
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        machine_name: machineForm.machine_name.trim(),
+        model_serial: machineForm.model_serial ? machineForm.model_serial.trim() : null,
+        condition_notes: machineForm.condition_notes ? machineForm.condition_notes.trim() : null,
+        department: machineForm.department.trim(),
+        registered_by: userFullName,
+      };
+
+      const res = await api.post('/api/v1/printing-assets/store/machines', payload);
+      const generatedId = res?.data?.data?.machine_id || 'Machine';
+
+      showToast('success', `Machine "${machineForm.machine_name.trim()}" registered successfully (${generatedId})!`);
+      setMachineForm({
+        machine_name: '',
+        model_serial: '',
+        department: 'Printing',
+        condition_notes: '',
+      });
+      setCustomDept(false);
+    } catch (e) {
+      showToast('error', e.response?.data?.message || 'Failed to register machine');
+    }
     setSaving(false);
   };
 
@@ -1356,205 +1637,548 @@ showToast('success', `"${form.material_name}" registered — ETB ${total.toLocal
 
       {/* ── HEADER ── */}
       <div className="gsr-header">
-        <h1 className="gsr-title"><Plus size={18} /> Register New Item</h1>
-        <p className="gsr-subtitle">Add consumables to the Universal General Store · Any Department</p>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <div className="gsr-progress" style={{ flex: 1 }}>
-            <div className="gsr-progress-fill" style={{ width: form.material_name && form.department ? '100%' : form.material_name ? '60%' : '20%' }} />
+        <div className="gsr-header-top">
+          <div>
+            <h1 className="gsr-title"><Plus size={22} color="#16A34A" /> Register New Item</h1>
+            <p className="gsr-subtitle">Add consumables, materials, or equipment to the Universal General Store across all departments</p>
           </div>
-          <button className="gsr-income-btn" onClick={openIncoming} style={{ whiteSpace: 'nowrap' }}>
-            <Download size={18} /> Incoming Shipments
-            {incomingList.length > 0 && <span className="gsr-income-badge">{incomingList.length}</span>}
-          </button>
+          <div className="gsr-header-actions">
+            <button type="button" className="gsr-top-btn" onClick={() => nav('/general-store/inventory')} title="Browse full consumables inventory">
+              <Box size={16} /> Consumables Inventory
+            </button>
+            <button type="button" className="gsr-income-btn" onClick={openIncoming} style={{ whiteSpace: 'nowrap' }}>
+              <Download size={16} /> Incoming Shipments
+              {incomingList.length > 0 && <span className="gsr-income-badge">{incomingList.length}</span>}
+            </button>
+          </div>
         </div>
+
+        {/* Incoming Shipments Alert Notice */}
         {incomingList.length > 0 && (
           <div className="gsr-income-bar" onClick={openIncoming}>
-            <span><Package size={18} /> <strong>{incomingList.length}</strong> incoming shipment{incomingList.length !== 1 ? 's' : ''} waiting to be received.</span>
-            <span className="gsr-income-cta">Review & Receive →</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Package size={16} />
+              <span><strong>{incomingList.length}</strong> incoming shipment{incomingList.length !== 1 ? 's' : ''} waiting to be received and stocked.</span>
+            </span>
+            <span className="gsr-income-cta">Review & Stock →</span>
           </div>
         )}
       </div>
 
-      <div className="gsr-main">
-        {/* ── LEFT: FORM ── */}
-        <div className="gsr-cols">
+      {/* ── ITEM TYPE SWITCHER ── */}
+      <div className="gsr-type-switcher">
+        <button
+          type="button"
+          className={`gsr-type-tab${regType === 'material' ? ' gsr-type-tab--active' : ''}`}
+          onClick={() => setRegType('material')}
+        >
+          <Box size={16} /> Consumable / Store Material
+        </button>
+        <button
+          type="button"
+          className={`gsr-type-tab${regType === 'machine' ? ' gsr-type-tab--active' : ''}`}
+          onClick={() => setRegType('machine')}
+        >
+          <Wrench size={16} /> Fixed Asset / Machine / Equipment
+        </button>
+      </div>
 
-          {/* 1. Basic Info */}
-          <div className="gsr-card">
-            <div className="gsr-card-head"><span style={{ fontSize: 16 }}><ClipboardList size={18} /></span><span className="gsr-card-title">Basic Information</span></div>
-            <div className="gsr-card-body">
-              <div className="gsr-field" style={{ marginBottom: 16 }}>
-                <label className="gsr-label">Item Name *</label>
-                <input className="gsr-input" value={form.material_name} onChange={e => set('material_name', e.target.value)} placeholder="e.g. Engine Oil 5W-30, A4 Copy Paper..." />
-              </div>
-              <div className="gsr-grid-2">
-                <div className="gsr-field">
-                  <label className="gsr-label">Category</label>
-                  <select className="gsr-input" value={form.category} onChange={e => set('category', e.target.value)}>
-                    {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
+      {/* ── LINKED SHIPMENT BANNER ── */}
+      {acceptTarget && (
+        <div className="gsr-linked-banner">
+          <div className="gsr-linked-info">
+            <Package size={18} />
+            <span>
+              Linked with incoming purchase shipment <strong>{acceptTarget.deliveryNote}</strong>: item <strong>"{acceptTarget.itemDesc}"</strong>.
+              Submitting this form will register the stock and automatically update the shipment receipt!
+            </span>
+          </div>
+          <button type="button" className="gsr-linked-cancel" onClick={() => setAcceptTarget(null)}>
+            ✕ Cancel Link
+          </button>
+        </div>
+      )}
+
+      {/* ── MAIN CONTENT ── */}
+      {regType === 'material' ? (
+        <div className="gsr-main">
+          {/* ── LEFT: FORM ── */}
+          <div className="gsr-cols">
+
+            {/* 1. Basic Info */}
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <ClipboardList size={18} color="#2563EB" />
+                  <span className="gsr-card-title">Basic Information</span>
                 </div>
-                <div className="gsr-field">
-                  <label className="gsr-label">Department *</label>
-                  {!customDept ? (
-                    <div className="gsr-dept-row">
-                      <select className="gsr-input" value={form.department} onChange={e => set('department', e.target.value)}>
-                        <option value="">-- Select --</option>
-                        {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                      </select>
-                      <button className="gsr-icon-btn" onClick={() => setCustomDept(true)} title="Custom department">+</button>
-                    </div>
-                  ) : (
-                    <div className="gsr-dept-row">
-                      <input className="gsr-input" value={form.department} onChange={e => set('department', e.target.value)} placeholder="Type dept..." />
-                      <button className="gsr-icon-btn gsr-icon-btn--danger" onClick={() => { setCustomDept(false); set('department', 'Printing'); }} title="Reset to Printing">✕</button>
+              </div>
+              <div className="gsr-card-body">
+                <div className="gsr-field" style={{ marginBottom: 16 }}>
+                  <label className="gsr-label">Item Name *</label>
+                  <input
+                    className="gsr-input"
+                    value={form.material_name}
+                    onChange={e => setMat('material_name', e.target.value)}
+                    placeholder="e.g. Engine Oil 5W-30, A4 Copy Paper, Printing Toner..."
+                  />
+                </div>
+                <div className="gsr-grid-2">
+                  <div className="gsr-field">
+                    <label className="gsr-label">Category</label>
+                    {!customCat ? (
+                      <div className="gsr-dept-row">
+                        <select className="gsr-input" value={form.category} onChange={e => {
+                          if (e.target.value === '__custom__') {
+                            setCustomCat(true);
+                            setMat('category', '');
+                          } else {
+                            setMat('category', e.target.value);
+                          }
+                        }}>
+                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          <option value="__custom__">+ Custom Category...</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="gsr-dept-row">
+                        <input
+                          className="gsr-input"
+                          value={form.category}
+                          onChange={e => setMat('category', e.target.value)}
+                          placeholder="Type custom category..."
+                        />
+                        <button
+                          type="button"
+                          className="gsr-icon-btn gsr-icon-btn--danger"
+                          onClick={() => { setCustomCat(false); setMat('category', 'Paper'); }}
+                          title="Reset category"
+                        >✕</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="gsr-field">
+                    <label className="gsr-label">Department *</label>
+                    {!customDept ? (
+                      <div className="gsr-dept-row">
+                        <select className="gsr-input" value={form.department} onChange={e => setMat('department', e.target.value)}>
+                          <option value="">-- Select Department --</option>
+                          {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <button type="button" className="gsr-icon-btn" onClick={() => setCustomDept(true)} title="Enter custom department">+</button>
+                      </div>
+                    ) : (
+                      <div className="gsr-dept-row">
+                        <input
+                          className="gsr-input"
+                          value={form.department}
+                          onChange={e => setMat('department', e.target.value)}
+                          placeholder="Type department..."
+                        />
+                        <button
+                          type="button"
+                          className="gsr-icon-btn gsr-icon-btn--danger"
+                          onClick={() => { setCustomDept(false); setMat('department', 'Printing'); }}
+                          title="Reset to Printing"
+                        >✕</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Stock & Unit */}
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <Package size={18} color="#16A34A" />
+                  <span className="gsr-card-title">Stock & Unit</span>
+                </div>
+              </div>
+              <div className="gsr-card-body">
+                <div className="gsr-grid-2">
+                  <div className="gsr-field">
+                    <label className="gsr-label">Unit of Measure *</label>
+                    <input
+                      className="gsr-input"
+                      type="text"
+                      value={form.unit}
+                      placeholder="e.g. roll, box, litre, pack, piece..."
+                      onChange={e => setMat('unit', e.target.value)}
+                    />
+                  </div>
+                  <div className="gsr-field">
+                    <label className="gsr-label">Opening Quantity</label>
+                    <input
+                      className="gsr-input"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={form.quantity_in_store}
+                      placeholder="0"
+                      onChange={e => setMat('quantity_in_store', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Pricing, VAT & Reorder */}
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <DollarSign size={18} color="#D97706" />
+                  <span className="gsr-card-title">Pricing, VAT & Reorder Control</span>
+                </div>
+              </div>
+              <div className="gsr-card-body">
+                <div className="gsr-grid-2">
+                  <div className="gsr-field">
+                    <label className="gsr-label">Cost Price of 1 Unit (ETB)</label>
+                    <input
+                      className="gsr-input gsr-input--money"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.unit_value}
+                      placeholder="0.00"
+                      onChange={e => setMat('unit_value', e.target.value)}
+                    />
+                  </div>
+                  <div className="gsr-field">
+                    <label className="gsr-label">Reorder Level (minimum qty alert)</label>
+                    <input
+                      className="gsr-input gsr-input--money"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.reorder_level}
+                      placeholder="10"
+                      onChange={e => setMat('reorder_level', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Input VAT Config */}
+                <div style={{ marginTop: 16, padding: '14px 16px', background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: form.has_input_vat ? 12 : 0 }}>
+                    <input
+                      type="checkbox"
+                      id="vat_toggle"
+                      checked={!!form.has_input_vat}
+                      onChange={e => setMat('has_input_vat', e.target.checked)}
+                      style={{ width: 16, height: 16, accentColor: '#D97706', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="vat_toggle" style={{ fontSize: 13, fontWeight: 700, color: '#92400E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Receipt size={16} /> This item was purchased with Input VAT (VAT-registered supplier)
+                    </label>
+                  </div>
+                  {form.has_input_vat && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="gsr-field" style={{ marginBottom: 0 }}>
+                        <label className="gsr-label">VAT Rate (%)</label>
+                        <select className="gsr-input" value={form.vat_rate || 15} onChange={e => setMat('vat_rate', parseFloat(e.target.value))}>
+                          <option value={15}>15% (Standard Ethiopian VAT)</option>
+                          <option value={10}>10%</option>
+                          <option value={5}>5%</option>
+                          <option value={0}>0% (Exempt)</option>
+                        </select>
+                      </div>
+                      <div className="gsr-field" style={{ marginBottom: 0 }}>
+                        <label className="gsr-label">Input VAT per Unit (ETB)</label>
+                        <input
+                          className="gsr-input gsr-input--money"
+                          type="number"
+                          readOnly
+                          value={(price * ((form.vat_rate || 15) / 100)).toFixed(2)}
+                          style={{ background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
             </div>
+
+            {/* SUBMIT */}
+            <div className="gsr-actions">
+              <button
+                type="button"
+                className="gsr-reset-btn"
+                onClick={() => {
+                  setForm({
+                    material_name: '',
+                    category: 'Paper',
+                    unit: 'roll',
+                    quantity_in_store: '',
+                    department: 'Printing',
+                    unit_value: '',
+                    reorder_level: '10',
+                    has_input_vat: false,
+                    vat_rate: 15,
+                  });
+                  setCustomDept(false);
+                  setCustomCat(false);
+                  setAcceptTarget(null);
+                }}
+              >
+                Clear Form
+              </button>
+              <button className="gsr-submit" onClick={submitMaterial} disabled={saving}>
+                {saving && <SegmentedSpinner size={16} color="#fff" />}
+                <span>{saving ? 'Registering Material...' : 'Register Consumable Item'}</span>
+              </button>
+            </div>
           </div>
 
-          {/* 2. Stock & Unit */}
-          <div className="gsr-card">
-            <div className="gsr-card-head"><span style={{ fontSize: 16 }}><Package size={18} /></span><span className="gsr-card-title">Stock & Unit</span></div>
-            <div className="gsr-card-body">
-              <div className="gsr-grid-2">
-                {[['unit', 'Unit of Measure', 'roll, litre, box...', 'text'], ['quantity_in_store', 'Opening Quantity', '0', 'number']].map(([k, lbl, ph, type]) => (
-                  <div key={k} className="gsr-field">
-                    <label className="gsr-label">{lbl}</label>
-                    <input className="gsr-input" type={type} min="0" value={form[k]} placeholder={ph} onChange={e => set(k, e.target.value)} />
+          {/* ── RIGHT: SUMMARY ── */}
+          <div className="gsr-side">
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <BarChart size={18} color="#2563EB" />
+                  <span className="gsr-card-title">Live Valuation</span>
+                </div>
+              </div>
+              <div className="gsr-card-body">
+                <div className="gsr-calc-row">
+                  <span className="gsr-calc-label">Qty × Unit Cost</span>
+                  <span className="gsr-calc-value">{qty} × ETB {price.toFixed(2)}</span>
+                </div>
+                {form.has_input_vat && (
+                  <>
+                    <div className="gsr-calc-row" style={{ color: '#D97706' }}>
+                      <span className="gsr-calc-label">Input VAT ({form.vat_rate || 15}%)</span>
+                      <span className="gsr-calc-value">+ ETB {(total * ((form.vat_rate || 15) / 100)).toFixed(2)}</span>
+                    </div>
+                    <div className="gsr-calc-row" style={{ borderTop: '1px dashed #FDE68A', paddingTop: 6 }}>
+                      <span className="gsr-calc-label" style={{ fontWeight: 700 }}>Total incl. VAT</span>
+                      <span className="gsr-calc-value" style={{ fontWeight: 700, color: '#D97706' }}>ETB {(total * (1 + (form.vat_rate || 15) / 100)).toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="gsr-calc-total">
+                  <span className="gsr-calc-total-label">Stock Value (excl. VAT)</span>
+                  <span className="gsr-calc-total-value">ETB {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="gsr-reorder-note">
+                  <span><Zap size={18} /></span>
+                  <span>Low stock warning triggers below <strong>{reorder} {form.unit || 'units'}</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <Leaf size={18} color="#16A34A" />
+                  <span className="gsr-card-title">Item Summary</span>
+                </div>
+              </div>
+              <div className="gsr-card-body">
+                {[
+                  ['Item Name', form.material_name || '—', true],
+                  ['Category', form.category],
+                  ['Department', form.department || '—'],
+                  ['Unit of Measure', form.unit || '—'],
+                  ['Opening Qty', qty.toLocaleString()],
+                  ['Unit Cost', `ETB ${price.toFixed(2)}`],
+                  ['Registered By', userFullName],
+                  ...(form.has_input_vat ? [['Input VAT', `${form.vat_rate || 15}% (ETB ${(price * (form.vat_rate || 15) / 100).toFixed(2)}/unit)`]] : []),
+                ].map(([lbl, val, bold]) => (
+                  <div key={lbl} className="gsr-preview-row">
+                    <span className="gsr-preview-label">{lbl}</span>
+                    <span className={`gsr-preview-value${bold ? ' gsr-preview-value--strong' : ''}`}>{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="gsr-tips">
+              <div className="gsr-tips-title"><Sprout size={16} /> STORE KEEPER TIPS</div>
+              {[
+                'Stock value is auto-computed (Qty × Cost Price) and posts to Store Valuation.',
+                'Reorder levels trigger instant alerts on the Dashboard and Inventory view.',
+                'Use "Incoming Shipments" to receive purchases directly into inventory.'
+              ].map((t, i) => (
+                <div key={i} className="gsr-tip">
+                  <span className="gsr-tip-arrow">▶</span>
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ── MACHINE / FIXED ASSET FORM ── */
+        <div className="gsr-main">
+          <div className="gsr-cols">
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <Wrench size={18} color="#7C3AED" />
+                  <span className="gsr-card-title">Machine / Asset Details</span>
+                </div>
+              </div>
+              <div className="gsr-card-body">
+                <div className="gsr-field" style={{ marginBottom: 16 }}>
+                  <label className="gsr-label">Machine / Equipment Name *</label>
+                  <input
+                    className="gsr-input"
+                    value={machineForm.machine_name}
+                    onChange={e => setMac('machine_name', e.target.value)}
+                    placeholder="e.g. Heidelberg Offset Press, HP LaserJet Pro 400, Industrial Guillotine..."
+                  />
+                </div>
+                <div className="gsr-grid-2">
+                  <div className="gsr-field">
+                    <label className="gsr-label">Model / Serial Number</label>
+                    <input
+                      className="gsr-input"
+                      value={machineForm.model_serial}
+                      onChange={e => setMac('model_serial', e.target.value)}
+                      placeholder="e.g. SN-892410-X, Model 2024"
+                    />
+                  </div>
+                  <div className="gsr-field">
+                    <label className="gsr-label">Assigned Department *</label>
+                    {!customDept ? (
+                      <div className="gsr-dept-row">
+                        <select className="gsr-input" value={machineForm.department} onChange={e => setMac('department', e.target.value)}>
+                          {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <button type="button" className="gsr-icon-btn" onClick={() => setCustomDept(true)} title="Custom department">+</button>
+                      </div>
+                    ) : (
+                      <div className="gsr-dept-row">
+                        <input
+                          className="gsr-input"
+                          value={machineForm.department}
+                          onChange={e => setMac('department', e.target.value)}
+                          placeholder="Type department..."
+                        />
+                        <button
+                          type="button"
+                          className="gsr-icon-btn gsr-icon-btn--danger"
+                          onClick={() => { setCustomDept(false); setMac('department', 'Printing'); }}
+                          title="Reset to Printing"
+                        >✕</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="gsr-field" style={{ marginTop: 16 }}>
+                  <label className="gsr-label">Condition & Notes</label>
+                  <input
+                    className="gsr-input"
+                    value={machineForm.condition_notes}
+                    onChange={e => setMac('condition_notes', e.target.value)}
+                    placeholder="e.g. Brand new, operational, fully tested..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="gsr-actions">
+              <button
+                type="button"
+                className="gsr-reset-btn"
+                onClick={() => {
+                  setMachineForm({ machine_name: '', model_serial: '', department: 'Printing', condition_notes: '' });
+                  setCustomDept(false);
+                }}
+              >
+                Clear Form
+              </button>
+              <button className="gsr-submit" onClick={submitMachine} disabled={saving} style={{ background: '#7C3AED' }}>
+                {saving && <SegmentedSpinner size={16} color="#fff" />}
+                <span>{saving ? 'Registering Equipment...' : 'Register Machine Asset'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="gsr-side">
+            <div className="gsr-card">
+              <div className="gsr-card-head">
+                <div className="gsr-card-head-left">
+                  <Leaf size={18} color="#7C3AED" />
+                  <span className="gsr-card-title">Asset Summary</span>
+                </div>
+              </div>
+              <div className="gsr-card-body">
+                {[
+                  ['Machine Name', machineForm.machine_name || '—', true],
+                  ['Model / Serial', machineForm.model_serial || '—'],
+                  ['Department', machineForm.department || '—'],
+                  ['Initial Status', 'In Store (Available)'],
+                  ['Registered By', userFullName],
+                  ['Condition Notes', machineForm.condition_notes || 'Standard'],
+                ].map(([lbl, val, bold]) => (
+                  <div key={lbl} className="gsr-preview-row">
+                    <span className="gsr-preview-label">{lbl}</span>
+                    <span className={`gsr-preview-value${bold ? ' gsr-preview-value--strong' : ''}`}>{val}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* 3. Pricing, VAT & Reorder */}
-          <div className="gsr-card">
-            <div className="gsr-card-head"><span style={{ fontSize: 16 }}><DollarSign size={18} /></span><span className="gsr-card-title">Pricing, VAT & Reorder Control</span></div>
-            <div className="gsr-card-body">
-              <div className="gsr-grid-2">
-                <div className="gsr-field">
-                  <label className="gsr-label">Cost Price of 1 Unit (ETB)</label>
-                  <input className="gsr-input gsr-input--money" type="number" min="0" step="0.01" value={form.unit_value} onChange={e => set('unit_value', e.target.value)} />
-                </div>
-                <div className="gsr-field">
-                  <label className="gsr-label">Reorder Level (min qty)</label>
-                  <input className="gsr-input gsr-input--money" type="number" min="0" step="1" value={form.reorder_level} onChange={e => set('reorder_level', e.target.value)} />
-                </div>
-              </div>
-
-              {/* Input VAT Config */}
-              <div style={{ marginTop: 16, padding: '14px 16px', background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <input
-                    type="checkbox"
-                    id="vat_toggle"
-                    checked={!!form.has_input_vat}
-                    onChange={e => set('has_input_vat', e.target.checked)}
-                    style={{ width: 16, height: 16, accentColor: '#D97706', cursor: 'pointer' }}
-                  />
-                  <label htmlFor="vat_toggle" style={{ fontSize: 13, fontWeight: 700, color: '#92400E', cursor: 'pointer' }}>
-                    <Receipt size={18} /> This item is purchased with Input VAT (VAT-registered supplier)
-                  </label>
-                </div>
-                {form.has_input_vat && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div className="gsr-field" style={{ marginBottom: 0 }}>
-                      <label className="gsr-label">VAT Rate (%)</label>
-                      <select className="gsr-input" value={form.vat_rate || 15} onChange={e => set('vat_rate', parseFloat(e.target.value))}>
-                        <option value={15}>15% (Standard)</option>
-                        <option value={10}>10%</option>
-                        <option value={5}>5%</option>
-                        <option value={0}>0% (Exempt)</option>
-                      </select>
-                    </div>
-                    <div className="gsr-field" style={{ marginBottom: 0 }}>
-                      <label className="gsr-label">Input VAT per Unit (ETB)</label>
-                      <input
-                        className="gsr-input gsr-input--money"
-                        type="number"
-                        readOnly
-                        value={(price * ((form.vat_rate || 15) / 100)).toFixed(2)}
-                        style={{ background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+      {/* ── RECENTLY REGISTERED STORE ITEMS ── */}
+      <div className="gsr-recent-wrap">
+        <div className="gsr-card">
+          <div className="gsr-card-head">
+            <div className="gsr-card-head-left">
+              <ClipboardList size={18} color="#16A34A" />
+              <span className="gsr-card-title">Recently Registered Store Consumables</span>
             </div>
-          </div>
-
-          {/* SUBMIT */}
-          <div className="gsr-actions">
-            <button className="gsr-submit" onClick={submit} disabled={saving}>
-              {saving && <SegmentedSpinner size={16} color="#fff" />}
-              <span>{saving ? 'Registering...' : 'Register Item'}</span>
+            <button
+              type="button"
+              className="gsr-top-btn"
+              style={{ padding: '6px 12px', fontSize: 12 }}
+              onClick={() => nav('/general-store/inventory')}
+            >
+              View Full Inventory ({recentItems.length ? 'Live' : '0'}) →
             </button>
           </div>
-        </div>
-
-        {/* ── RIGHT: SUMMARY ── */}
-        <div className="gsr-side">
-          <div className="gsr-card">
-            <div className="gsr-card-head"><span style={{ fontSize: 16 }}><BarChart size={18} /></span><span className="gsr-card-title">Live Calculation</span></div>
-            <div className="gsr-card-body">
-              <div className="gsr-calc-row">
-                <span className="gsr-calc-label">Qty × Cost Price</span>
-                <span className="gsr-calc-value">{qty} × ETB {price.toFixed(2)}</span>
+          <div style={{ overflowX: 'auto' }}>
+            {recentItems.length === 0 ? (
+              <div style={{ padding: '28px', textAlign: 'center', color: '#6B7280', fontSize: 13 }}>
+                {loadingRecent ? 'Loading recent items...' : 'No consumable items registered yet. Use the form above to add your first item.'}
               </div>
-              {form.has_input_vat && (
-                <>
-                  <div className="gsr-calc-row" style={{ color: '#D97706' }}>
-                    <span className="gsr-calc-label">Input VAT ({form.vat_rate || 15}%)</span>
-                    <span className="gsr-calc-value">+ ETB {(total * ((form.vat_rate || 15) / 100)).toFixed(2)}</span>
-                  </div>
-                  <div className="gsr-calc-row" style={{ borderTop: '1px dashed #FDE68A', paddingTop: 6 }}>
-                    <span className="gsr-calc-label" style={{ fontWeight: 700 }}>Total incl. VAT</span>
-                    <span className="gsr-calc-value" style={{ fontWeight: 700, color: '#D97706' }}>ETB {(total * (1 + (form.vat_rate || 15) / 100)).toFixed(2)}</span>
-                  </div>
-                </>
-              )}
-              <div className="gsr-calc-total">
-                <span className="gsr-calc-total-label">Stock Value (excl. VAT)</span>
-                <span className="gsr-calc-total-value">ETB {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-              <div className="gsr-reorder-note">
-                <span><Zap size={18} /></span>
-                <span>Alert fires at <strong>{reorder} {form.unit || 'units'}</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <div className="gsr-card">
-            <div className="gsr-card-head"><span style={{ fontSize: 16 }}><Leaf size={18} /></span><span className="gsr-card-title">Item Preview</span></div>
-            <div className="gsr-card-body">
-              {[
-                ['Name', form.material_name || '—', true],
-                ['Category', form.category],
-                ['Department', form.department || '—'],
-                ['Unit', form.unit || '—'],
-                ['Qty', qty.toLocaleString()],
-                ['Cost Price', `ETB ${price.toFixed(2)}`],
-                ...(form.has_input_vat ? [['Input VAT', `${form.vat_rate || 15}% = ETB ${(price * (form.vat_rate || 15) / 100).toFixed(2)}`]] : []),
-              ].map(([lbl, val, bold]) => (
-                <div key={lbl} className="gsr-preview-row">
-                  <span className="gsr-preview-label">{lbl}</span>
-                  <span className={`gsr-preview-value${bold ? ' gsr-preview-value--strong' : ''}${lbl === 'Input VAT' ? ' gsr-preview-value--vat' : ''}`}>{val}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="gsr-tips">
-            <div className="gsr-tips-title"><Sprout size={18} /> TIPS</div>
-            {['Total value auto-calculated: Qty × Price', 'Reorder level triggers low-stock alerts', 'Click "+" to enter a custom department'].map((t, i) => (
-              <div key={i} className="gsr-tip">
-                <span className="gsr-tip-arrow">▶</span>
-                <span>{t}</span>
-              </div>
-            ))}
+            ) : (
+              <table className="gsr-table">
+                <thead>
+                  <tr>
+                    <th>Item ID</th>
+                    <th>Material Name</th>
+                    <th>Category</th>
+                    <th>Department</th>
+                    <th style={{ textAlign: 'right' }}>Stock Qty</th>
+                    <th style={{ textAlign: 'right' }}>Unit Cost</th>
+                    <th style={{ textAlign: 'right' }}>Total Value</th>
+                    <th>Registered By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentItems.map(it => (
+                    <tr key={it.id || it.material_id}>
+                      <td><span className="gsr-table-id">{it.material_id}</span></td>
+                      <td style={{ fontWeight: 600 }}>{it.material_name}</td>
+                      <td><span style={{ fontSize: 12, color: '#4B5563' }}>{it.category}</span></td>
+                      <td><DeptBadge dept={it.department || 'Printing'} /></td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{parseFloat(it.quantity_in_store || 0).toLocaleString()} {it.unit || ''}</td>
+                      <td style={{ textAlign: 'right' }}>ETB {parseFloat(it.unit_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#16A34A' }}>ETB {parseFloat(it.total_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td style={{ fontSize: 12, color: '#6B7280' }}>{it.registered_by || 'Store Keeper'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>
@@ -1564,84 +2188,100 @@ showToast('success', `"${form.material_name}" registered — ETB ${total.toLocal
         <div className="gsr-overlay" onClick={() => setShowIncoming(false)}>
           <div className="gsr-inc-modal" onClick={e => e.stopPropagation()}>
             <div className="gsr-inc-head">
-              <span style={{ fontSize: 18 }}><Download size={18} /></span>
-              <span className="gsr-inc-title">Incoming Shipments</span>
+              <Download size={18} color="#16A34A" />
+              <span className="gsr-inc-title">Incoming Shipments (From Purchase Quotations)</span>
               <button className="gsr-inc-close" onClick={() => setShowIncoming(false)}>✕</button>
             </div>
             <div className="gsr-inc-tabs">
-                <button className={`gsr-inc-tab${incTab === 'pending' ? ' gsr-inc-tab--on' : ''}`} onClick={() => setIncTab('pending')}>
-                  Pending ({incomingList.length})
-                </button>
-                <button className={`gsr-inc-tab${incTab === 'received' ? ' gsr-inc-tab--on' : ''}`} onClick={() => setIncTab('received')}>
-                  Accepted ({acceptedList.length})
-                </button>
-              </div>
+              <button className={`gsr-inc-tab${incTab === 'pending' ? ' gsr-inc-tab--on' : ''}`} onClick={() => setIncTab('pending')}>
+                Pending ({incomingList.length})
+              </button>
+              <button className={`gsr-inc-tab${incTab === 'received' ? ' gsr-inc-tab--on' : ''}`} onClick={() => setIncTab('received')}>
+                Accepted ({acceptedList.length})
+              </button>
+            </div>
             <div className="gsr-inc-body">
               {incTab === 'pending' ? (
                 incomingList.length === 0 ? (
                   <div className="gsr-inc-empty">
-                    <div style={{ fontSize: 32 }}><Mailbox size={18} /></div>
+                    <div style={{ fontSize: 32 }}><Mailbox size={28} /></div>
                     <div><strong>No pending incoming shipments.</strong></div>
-                    <div style={{ fontSize: 12, color: G.darkGray }}>Shipments created by Purchase converters (Convert & Send to General Store) will appear here.</div>
+                    <div style={{ fontSize: 12, color: '#6B7280' }}>Shipments converted and sent to General Store by the Purchase team will appear here.</div>
                   </div>
                 ) : (
                   incomingList.map(inc => {
-                      const totalValue = Number(inc.total_value || 0);
-                      const receivedValue = Number(inc.received_value || 0);
-                      const pct = Math.min(100, Number(inc.percent || 0));
-                      return (
-                    <div key={inc.id} className={`gsr-inc-card${selectedInc === inc.id ? ' gsr-inc-card--active' : ''}`}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>
-                          {inc.delivery_note_no || `Inc-${inc.id}`}
-                          <span style={{ fontWeight: 600, color: G.darkGray, marginLeft: 8, fontSize: 12 }}>{inc.quotation_no} · {inc.supplier_name || 'supplier'}</span>
+                    const totalValue = Number(inc.total_value || 0);
+                    const receivedValue = Number(inc.received_value || 0);
+                    const pct = Math.min(100, Number(inc.percent || 0));
+                    return (
+                      <div key={inc.id} className={`gsr-inc-card${selectedInc === inc.id ? ' gsr-inc-card--active' : ''}`}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <div style={{ fontWeight: 800, fontSize: 13 }}>
+                            {inc.delivery_note_no || `Inc-${inc.id}`}
+                            <span style={{ fontWeight: 600, color: '#6B7280', marginLeft: 8, fontSize: 12 }}>{inc.quotation_no} · {inc.supplier_name || 'supplier'}</span>
+                          </div>
+                          <span className="gsr-inc-status">PENDING</span>
                         </div>
-                        <span className="gsr-inc-status">PENDING</span>
-                      </div>
-                      <div className="gsr-inc-progress">
-                        <div className="gsr-inc-progress-track">
-                          <div className="gsr-inc-progress-fill" style={{ width: `${pct}%` }} />
+                        <div style={{ margin: '8px 0', fontSize: 12, color: '#4B5563' }}>
+                          Accepted {inc.received_count || 0} of {inc.item_count || (inc.items || []).length} item(s) · ETB {receivedValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} / {totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({pct}%)
                         </div>
-                        <span className="gsr-inc-progress-txt">
-                          Accepted {inc.received_count || 0} of {inc.item_count || (inc.items || []).length} item(s) · ETB {receivedValue.toLocaleString(undefined,{maximumFractionDigits:0})} / {totalValue.toLocaleString(undefined,{maximumFractionDigits:0})} ({pct}%)
-                        </span>
-                      </div>
-                      <table className="gsr-inc-items">
-                        <thead>
-                          <tr><th>Item</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Unit</th><th style={{ textAlign: 'right' }}>Cost</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'center' }}>Action</th></tr>
-                        </thead>
-                        <tbody>
-                          {(inc.items || []).map(it => (
-                            <tr key={it.id}>
-                              <td>{it.item_description || '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{it.quantity}</td>
-                              <td style={{ textAlign: 'right' }}>{it.unit || '—'}</td>
-                              <td style={{ textAlign: 'right' }}>ETB {parseFloat(it.unit_price || 0).toLocaleString()}</td>
-                              <td style={{ textAlign: 'right' }}>ETB {parseFloat(it.line_total || 0).toLocaleString()}</td>
-                              <td style={{ textAlign: 'center' }}>
-                                <button className="gsr-inc-btn gsr-inc-btn--primary gsr-inc-btn--sm" disabled={receiving} onClick={() => acceptItem(inc, it)}>
-                                  ✓… Receive
-                                </button>
-                              </td>
+                        <table className="gsr-inc-items">
+                          <thead>
+                            <tr>
+                              <th>Item</th>
+                              <th style={{ textAlign: 'right' }}>Qty</th>
+                              <th style={{ textAlign: 'right' }}>Unit</th>
+                              <th style={{ textAlign: 'right' }}>Cost</th>
+                              <th style={{ textAlign: 'right' }}>Total</th>
+                              <th style={{ textAlign: 'center' }}>Action</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <div className="gsr-inc-actions">
-                        <button className="gsr-inc-btn gsr-inc-btn--ghost" disabled={receiving} onClick={() => acceptShipment(inc)}>
-                          {receiving && selectedInc === inc.id ? 'Receiving...' : '<Package size={18} /> Receive All at Once'}
-                        </button>
+                          </thead>
+                          <tbody>
+                            {(inc.items || []).map(it => (
+                              <tr key={it.id}>
+                                <td>{it.item_description || '—'}</td>
+                                <td style={{ textAlign: 'right' }}>{it.quantity}</td>
+                                <td style={{ textAlign: 'right' }}>{it.unit || '—'}</td>
+                                <td style={{ textAlign: 'right' }}>ETB {parseFloat(it.unit_price || 0).toLocaleString()}</td>
+                                <td style={{ textAlign: 'right' }}>ETB {parseFloat(it.line_total || 0).toLocaleString()}</td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    className="gsr-inc-btn gsr-inc-btn--primary"
+                                    disabled={receiving}
+                                    onClick={() => acceptItem(inc, it)}
+                                  >
+                                    <Plus size={14} /> Stock Item
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="gsr-inc-actions">
+                          <button
+                            type="button"
+                            className="gsr-inc-btn gsr-inc-btn--ghost"
+                            disabled={receiving}
+                            onClick={() => acceptShipment(inc)}
+                          >
+                            {receiving && selectedInc === inc.id ? 'Receiving...' : (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <Package size={16} /> Receive All at Once
+                              </span>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                      );
-                    })
+                    );
+                  })
                 )
               ) : (
                 acceptedList.length === 0 ? (
                   <div className="gsr-inc-empty">
-                    <div style={{ fontSize: 32 }}><Package size={18} /></div>
+                    <div style={{ fontSize: 32 }}><Package size={28} /></div>
                     <div><strong>No accepted shipments yet.</strong></div>
-                    <div style={{ fontSize: 12, color: G.darkGray }}>Shipments you accepted will be listed here.</div>
+                    <div style={{ fontSize: 12, color: '#6B7280' }}>Shipments you accepted will be listed here.</div>
                   </div>
                 ) : (
                   acceptedList.map(inc => (
@@ -1649,13 +2289,19 @@ showToast('success', `"${form.material_name}" registered — ETB ${total.toLocal
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <div style={{ fontWeight: 800, fontSize: 13 }}>
                           {inc.delivery_note_no || `Inc-${inc.id}`}
-                          <span style={{ fontWeight: 600, color: G.darkGray, marginLeft: 8, fontSize: 12 }}>{inc.quotation_no} · {inc.supplier_name || 'supplier'}</span>
+                          <span style={{ fontWeight: 600, color: '#6B7280', marginLeft: 8, fontSize: 12 }}>{inc.quotation_no} · {inc.supplier_name || 'supplier'}</span>
                         </div>
                         <span className="gsr-inc-status gsr-inc-status--ok">ACCEPTED</span>
                       </div>
                       <table className="gsr-inc-items">
                         <thead>
-                          <tr><th>Item</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Unit</th><th style={{ textAlign: 'right' }}>Cost</th><th style={{ textAlign: 'right' }}>Total</th></tr>
+                          <tr>
+                            <th>Item</th>
+                            <th style={{ textAlign: 'right' }}>Qty</th>
+                            <th style={{ textAlign: 'right' }}>Unit</th>
+                            <th style={{ textAlign: 'right' }}>Cost</th>
+                            <th style={{ textAlign: 'right' }}>Total</th>
+                          </tr>
                         </thead>
                         <tbody>
                           {(inc.items || []).map(it => (
@@ -1690,6 +2336,7 @@ showToast('success', `"${form.material_name}" registered — ETB ${total.toLocal
     </div>
   );
 };
+
 
 const GSIS_CSS = `
   .gsis-issue { box-sizing: border-box; width: 100%; min-height: 100%; background: var(--color-bg-page, #F5F6FA); color: var(--color-text-primary, #111827); font-family: 'Inter','Segoe UI',system-ui,-apple-system,'Roboto',sans-serif; }
@@ -1993,14 +2640,14 @@ export const GSIssueItem = () => {
           notes: form.job_reference,
         });
         showToast('success', `✓… Issued & sale recorded for ${form.department}!`);
-      } else if (form.request_id && (form.request_type === 'printing' || form.request_type === 'car')) {
-        // Printing / Car — ship via material-requests API
-        await api.post(`/api/v1/printing-assets/material-requests/${form.request_id}/ship`, { 
+      } else if (form.request_id && form.request_type === 'printing') {
+        // Printing request -- ship via material-requests API (CEO-approved flow)
+        await api.post(`/api/v1/printing-assets/material-requests/${form.request_id}/ship`, {
           shipped_qty: form.quantity,
           requested_by: form.requested_by,
           job_reference: form.job_reference
         });
-        showToast('success', `✓… Successfully shipped ${form.quantity} ${selected?.unit}!`);
+        showToast('success', `Shipped ${form.quantity} ${selected?.unit} to Printing Dept!`);
       } else {
         // Direct issue flow (no linked request)
         await api.post('/api/v1/printing-assets/issue/material', form);
@@ -2013,18 +2660,13 @@ export const GSIssueItem = () => {
   };
 
   const handlePrepareCar = (r) => {
-    setForm({
-      material_id: r.material_id || '',
-      quantity: r.quantity_requested || '',
-      department: r.department || 'Fleet Management',
-      requested_by: r.created_by_name || '',
-      job_reference: 'Car/AgriReq ' + r.request_code,
-      request_id: r.id,
-      request_type: 'car'
-    });
+    // Car/Agri requests are multi-item -- open the dedicated ship modal
+    // which captures per-item quantities and calls PATCH /car-renting/store-requests/:id/status
+    setCarShipModal(r);
+    const initQtys = {};
+    (r.items || []).forEach(it => { initQtys[it.id] = it.quantity_requested || 0; });
+    setCarShipQtys(initQtys);
     setShowWaitingModal(false);
-    const formEl = document.getElementById('issue_details_section');
-    if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handlePreparePos = (r) => {
@@ -2311,7 +2953,7 @@ export const GSIssueItem = () => {
               <div className="gsis-action-note"><span className="gsis-action-check">✓</span> Logs movement history with date/time</div>
             </div>
             <button onClick={submit} disabled={saving} className="gsis-submit">
-              {saving ? 'Processing...' : '<Send size={18} /> Issue Material Now'}
+              {saving ? 'Processing...' : <><Send size={18} /> Issue Material Now</>}
             </button>
           </div>
 
@@ -2706,23 +3348,71 @@ export const GSLogs = () => {
   const [logs, setLogs]       = useState([]);
   const [dept, setDept]       = useState('');
   const [type, setType]       = useState('');
+  const [action, setAction]   = useState('');
+  const [search, setSearch]   = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = {};
       if (dept) params.department = dept;
       if (type) params.item_type = type;
+      if (action) params.action_type = action;
       const r = await api.get('/api/v1/printing-assets/log', { params });
-      setLogs(r.data.data || []);
-    } catch { setLogs([]); }
-    setLoading(false);
-  }, [dept, type]);
+      const raw = r?.data?.data !== undefined ? r.data.data : (Array.isArray(r?.data) ? r.data : []);
+      setLogs(Array.isArray(raw) ? raw : []);
+    } catch (err) {
+      console.error('Failed to load movement logs:', err);
+      setError(err?.response?.data?.message || err?.message || 'Failed to fetch movement logs');
+      setLogs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [dept, type, action]);
 
   useEffect(() => { load(); }, [load]);
 
   const deptClass = { Printing: 'gsl-dept-badge--printing', 'Car Rental': 'gsl-dept-badge--car', AgriRent: 'gsl-dept-badge--agri', Sales: 'gsl-dept-badge--sales', Retail: 'gsl-dept-badge--retail', 'Retail POS': 'gsl-dept-badge--retail', IT: 'gsl-dept-badge--it', Maintenance: 'gsl-dept-badge--maintenance' };
+
+  const actionStyles = {
+    'Issue to Department': { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
+    'Move to Production':  { bg: '#FEF3C7', color: '#B45309', border: '#FDE68A' },
+    'Register':            { bg: '#DCFCE7', color: '#15803D', border: '#BBF7D0' },
+    'Receive':             { bg: '#CCFBF1', color: '#0F766E', border: '#99F6E4' },
+    'Return to Store':     { bg: '#E0F2FE', color: '#0369A1', border: '#BAE6FD' },
+    'Value Update':        { bg: '#F3E8FF', color: '#6B21A8', border: '#E9D5FF' },
+    'Consume':             { bg: '#F3F4F6', color: '#374151', border: '#E5E7EB' },
+  };
+
+  const availableActions = Array.from(new Set([
+    'Issue to Department',
+    'Move to Production',
+    'Register',
+    'Receive',
+    'Return to Store',
+    'Consume',
+    'Value Update',
+    ...logs.map(l => l.action_type).filter(Boolean)
+  ]));
+
+  const filteredLogs = logs.filter(l => {
+    if (action && l.action_type !== action) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const matchId = (l.item_id || '').toLowerCase().includes(q);
+      const matchNotes = (l.notes || '').toLowerCase().includes(q);
+      const matchBy = (l.moved_by || '').toLowerCase().includes(q);
+      const matchAction = (l.action_type || '').toLowerCase().includes(q);
+      const matchDept = (l.department || '').toLowerCase().includes(q);
+      const matchFrom = (l.from_location || '').toLowerCase().includes(q);
+      const matchTo = (l.to_location || '').toLowerCase().includes(q);
+      if (!matchId && !matchNotes && !matchBy && !matchAction && !matchDept && !matchFrom && !matchTo) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="gsl-logs">
@@ -2735,7 +3425,7 @@ export const GSLogs = () => {
             <span className="gsl-header-icon"><ClipboardList size={18} /></span>
             <div>
               <h1 className="gsl-title">Movement Logs</h1>
-              <p className="gsl-subtitle">Complete audit trail across all departments</p>
+              <p className="gsl-subtitle">Complete audit trail across all departments ({filteredLogs.length} records)</p>
             </div>
           </div>
           <button className="gsl-refresh" onClick={load} disabled={loading}>
@@ -2761,6 +3451,24 @@ export const GSLogs = () => {
               <option>Machine</option>
             </select>
           </div>
+          <div className="gsl-filter">
+            <label className="gsl-label">Action</label>
+            <select className="gsl-select" value={action} onChange={e => setAction(e.target.value)}>
+              <option value="">All Actions</option>
+              {availableActions.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div className="gsl-filter">
+            <label className="gsl-label">Search</label>
+            <input
+              type="text"
+              className="gsl-select"
+              style={{ cursor: 'text' }}
+              placeholder="Filter by item, person, note..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
         {/* ── GRID TABLE ── */}
@@ -2780,26 +3488,43 @@ export const GSLogs = () => {
               </div>
 
               {/* Data Rows */}
-              {logs.filter(l => l.action_type === 'Issue to Department').length === 0 ? (
+              {filteredLogs.length === 0 ? (
                 <div className="gsl-empty-card">
                   <div className="gsl-empty-icon"><Search size={18} /></div>
-                  <div className="gsl-empty-title">No issue records found for this filter.</div>
+                  <div className="gsl-empty-title">{error ? `Error: ${error}` : 'No movement records found for this filter.'}</div>
                 </div>
-              ) : logs.filter(l => l.action_type === 'Issue to Department').map(l => (
-                <div key={l.id} className="gsl-grid gsl-row">
-                  <div className="gsl-cell gsl-cell--date">{new Date(l.date_time).toLocaleString()}</div>
-                  <div className="gsl-cell"><span className={`gsl-badge gsl-badge--${(l.item_type || '').toLowerCase() || 'default'}`}>{l.item_type}</span></div>
-                  <div className="gsl-cell gsl-cell--code">{l.item_id}</div>
-                  <div className="gsl-cell gsl-cell--action">{l.action_type}</div>
-                  <div className="gsl-cell"><span className={`gsl-dept-badge ${deptClass[l.department] || 'gsl-dept-badge--default'}`}>{l.department || '?'}</span></div>
-                  <div className="gsl-cell gsl-cell--dim">{l.from_location}</div>
-                  <div className="gsl-cell gsl-cell--dim">{l.to_location}</div>
-                  <div className="gsl-cell gsl-cell--qty">{l.quantity > 0 ? parseFloat(l.quantity).toLocaleString() : '—'}</div>
-                  <div className="gsl-cell gsl-cell--by">{l.moved_by || '—'}</div>
-                  <div className="gsl-cell">{l.approved_by ? <span className="gsl-approved">✓ {l.approved_by}</span> : <span className="gsl-pending">Pending</span>}</div>
-                  <div className="gsl-cell gsl-cell--notes" title={l.notes}>{l.notes?.replace(' | PENDING_APPROVAL', '').replace(' | APPROVED', '') || '—'}</div>
-                </div>
-              ))}
+              ) : filteredLogs.map(l => {
+                const actStyle = actionStyles[l.action_type] || { bg: '#F3F4F6', color: '#374151', border: '#E5E7EB' };
+                return (
+                  <div key={l.id} className="gsl-grid gsl-row">
+                    <div className="gsl-cell gsl-cell--date">{new Date(l.date_time).toLocaleString()}</div>
+                    <div className="gsl-cell"><span className={`gsl-badge gsl-badge--${(l.item_type || '').toLowerCase() || 'default'}`}>{l.item_type}</span></div>
+                    <div className="gsl-cell gsl-cell--code">{l.item_id}</div>
+                    <div className="gsl-cell">
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: actStyle.bg,
+                        color: actStyle.color,
+                        border: `1px solid ${actStyle.border}`
+                      }}>
+                        {l.action_type}
+                      </span>
+                    </div>
+                    <div className="gsl-cell"><span className={`gsl-dept-badge ${deptClass[l.department] || 'gsl-dept-badge--default'}`}>{l.department || '—'}</span></div>
+                    <div className="gsl-cell gsl-cell--dim">{l.from_location}</div>
+                    <div className="gsl-cell gsl-cell--dim">{l.to_location}</div>
+                    <div className="gsl-cell gsl-cell--qty">{l.quantity > 0 ? parseFloat(l.quantity).toLocaleString() : '—'}</div>
+                    <div className="gsl-cell gsl-cell--by">{l.moved_by || '—'}</div>
+                    <div className="gsl-cell">{l.approved_by ? <span className="gsl-approved">✓ {l.approved_by}</span> : <span className="gsl-pending">Pending</span>}</div>
+                    <div className="gsl-cell gsl-cell--notes" title={l.notes}>{l.notes?.replace(' | PENDING_APPROVAL', '').replace(' | APPROVED', '') || '—'}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2810,86 +3535,269 @@ export const GSLogs = () => {
 
 /* ─── 6. VALUATION ──────────────────────────────────────────────────────── */
 const GSV_CSS = `
-  .gsv-valuation { font-family:'Inter','Segoe UI',Roboto,-apple-system,sans-serif; color:var(--color-text-primary); }
-  .gsv-content { display:flex; flex-direction:column; gap:24px; }
+  .gsv-valuation { font-family:'Inter','Segoe UI',Roboto,-apple-system,sans-serif; color:var(--color-text-primary,#111827); padding-bottom:40px; }
+  .gsv-content { display:flex; flex-direction:column; gap:20px; }
 
   /* Header */
-  .gsv-header { display:flex; justify-content:space-between; align-items:center; gap:16px; }
-  .gsv-header-left { display:flex; align-items:center; gap:16px; }
-  .gsv-header-icon { width:52px; height:52px; border-radius:12px; background:var(--color-bg-card); border:1px solid var(--color-border); display:flex; align-items:center; justify-content:center; font-size:26px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
-  .gsv-title { margin:0; font-size:26px; font-weight:600; line-height:1.3; letter-spacing:-0.02em; }
-  .gsv-subtitle { margin:4px 0 0; font-size:14px; color:var(--color-text-secondary); line-height:1.5; }
+  .gsv-header { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+  .gsv-header-left { display:flex; align-items:center; gap:14px; }
+  .gsv-header-icon { width:46px; height:46px; border-radius:12px; background:#EFF6FF; color:#2563EB; border:1px solid #BFDBFE; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .gsv-title { margin:0; font-size:24px; font-weight:700; line-height:1.3; letter-spacing:-0.02em; color:#111827; }
+  .gsv-subtitle { margin:4px 0 0; font-size:13px; color:#6B7280; line-height:1.5; }
+  .gsv-header-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .gsv-btn-action { height:38px; padding:0 14px; border-radius:8px; font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:7px; cursor:pointer; transition:all 150ms ease; }
+  .gsv-btn-outline { background:#fff; border:1px solid #D1D5DB; color:#374151; }
+  .gsv-btn-outline:hover { background:#F9FAFB; border-color:#9CA3AF; color:#111827; }
+  .gsv-btn-primary { background:#2563EB; border:1px solid #2563EB; color:#fff; }
+  .gsv-btn-primary:hover { background:#1D4ED8; border-color:#1D4ED8; }
+
+  /* KPIs */
+  .gsv-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+  .gsv-kpi-card { background:#fff; border:1px solid #E5E7EB; border-radius:10px; padding:18px 20px; box-shadow:0 1px 3px rgba(0,0,0,.05); border-top:3px solid #2563EB; }
+  .gsv-kpi-card--green { border-top-color:#16A34A; }
+  .gsv-kpi-card--amber { border-top-color:#D97706; }
+  .gsv-kpi-card--purple { border-top-color:#7C3AED; }
+  .gsv-kpi-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#6B7280; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; }
+  .gsv-kpi-val { font-size:24px; font-weight:700; color:#111827; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .gsv-kpi-val small { font-size:13px; font-weight:500; color:#6B7280; margin-right:4px; }
+  .gsv-kpi-sub { margin-top:6px; font-size:12px; color:#6B7280; }
 
   /* Toolbar */
-  .gsv-toolbar { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; }
-  .gsv-toolbar-group { display:flex; flex-direction:column; gap:6px; }
-  .gsv-label { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--color-text-muted); }
-  .gsv-select { height:38px; min-width:240px; padding:0 12px; border-radius:8px; border:1px solid var(--color-border); background:var(--color-bg-card); color:var(--color-text-primary); font-size:14px; font-weight:500; outline:none; transition:border-color 150ms ease, box-shadow 150ms ease; }
-  .gsv-select:focus { border-color:var(--color-warning); box-shadow:0 0 0 3px rgba(217,119,6,.15); }
-  .gsv-refresh { height:38px; padding:0 16px; border-radius:8px; border:1px solid var(--color-primary); background:var(--color-primary); color:#fff; font-size:14px; font-weight:500; display:inline-flex; align-items:center; gap:8px; cursor:pointer; transition:background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
-  .gsv-refresh:hover:not(:disabled) { background:#EAB308; border-color:#EAB308; color:#78350F; box-shadow:0 4px 14px rgba(234,179,8,.35); }
-  .gsv-refresh:disabled { opacity:.5; cursor:default; }
+  .gsv-toolbar { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)) auto; gap:12px; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:10px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .gsv-group { display:flex; flex-direction:column; gap:5px; }
+  .gsv-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#6B7280; }
+  .gsv-input { height:38px; padding:0 12px; border-radius:8px; border:1px solid #D1D5DB; background:#fff; color:#111827; font-size:13px; font-weight:500; outline:none; transition:all 150ms ease; }
+  .gsv-input:focus { border-color:#2563EB; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+  .gsv-refresh-btn { height:38px; padding:0 16px; border-radius:8px; border:none; background:#2563EB; color:#fff; font-size:13px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; transition:all 150ms ease; }
+  .gsv-refresh-btn:hover:not(:disabled) { background:#1D4ED8; }
+  .gsv-refresh-btn:disabled { opacity:.6; cursor:not-allowed; }
 
-  /* Loading */
-  .gsv-loading { display:flex; align-items:center; justify-content:center; gap:12px; padding:64px 16px; color:var(--color-text-secondary); font-size:15px; font-weight:500; }
+  /* Distribution Cards */
+  .gsv-dist-title { font-size:15px; font-weight:700; color:#111827; display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .gsv-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+  .gsv-card { background:#fff; border:1px solid #E5E7EB; border-radius:10px; padding:16px 18px; box-shadow:0 1px 3px rgba(0,0,0,.04); cursor:pointer; transition:all 150ms ease; position:relative; overflow:hidden; }
+  .gsv-card:hover { border-color:#93C5FD; transform:translateY(-1px); box-shadow:0 4px 10px rgba(0,0,0,.06); }
+  .gsv-card--active { border-color:#2563EB; background:#F8FAFC; box-shadow:0 0 0 2px rgba(37,99,235,.2); }
+  .gsv-card-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .gsv-card-count { font-size:11px; font-weight:600; color:#6B7280; background:#F3F4F6; border-radius:999px; padding:3px 8px; }
+  .gsv-card-value { font-size:20px; font-weight:700; color:#111827; font-variant-numeric:tabular-nums; }
+  .gsv-card-bar-bg { height:5px; background:#F3F4F6; border-radius:999px; overflow:hidden; margin-top:10px; }
+  .gsv-card-bar-fill { height:100%; background:#2563EB; border-radius:999px; transition:width 300ms ease; }
+  .gsv-card-footer { display:flex; justify-content:space-between; margin-top:6px; font-size:11px; color:#6B7280; font-weight:500; }
 
-  /* Summary cards */
-  .gsv-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px; }
-  .gsv-card { background:var(--color-bg-card); border:1px solid var(--color-border); border-radius:10px; padding:24px; box-shadow:0 1px 3px rgba(0,0,0,.06); transition:box-shadow 150ms ease, transform 150ms ease, border-color 150ms ease; }
-  .gsv-card:hover { border-color:#FCD34D; box-shadow:0 6px 16px rgba(0,0,0,.08); transform:translateY(-1px); }
-  .gsv-card-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
-  .gsv-card-count { font-size:12px; font-weight:600; color:var(--color-text-secondary); background:#F3F4F6; border-radius:999px; padding:4px 10px; white-space:nowrap; }
-  .gsv-card-value { font-size:32px; font-weight:700; letter-spacing:-0.02em; line-height:1.2; font-variant-numeric:tabular-nums; }
-  .gsv-card-currency { font-size:14px; font-weight:500; color:var(--color-text-muted); }
-  .gsv-card-caption { margin-top:8px; font-size:13px; font-weight:500; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.04em; }
+  /* Table Card */
+  .gsv-table-card { background:#fff; border:1px solid #E5E7EB; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .gsv-table-head-bar { padding:14px 18px; border-bottom:1px solid #E5E7EB; display:flex; justify-content:space-between; align-items:center; background:#FAFAFA; }
+  .gsv-table-title { font-size:14px; font-weight:700; color:#111827; }
+  .gsv-table-count { font-size:12px; font-weight:500; color:#6B7280; }
+  .gsv-table-wrap { overflow-x:auto; width:100%; }
+  .gsv-table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; min-width:860px; }
+  .gsv-table th { padding:12px 16px; background:#F9FAFB; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#6B7280; border-bottom:1px solid #E5E7EB; white-space:nowrap; }
+  .gsv-table td { padding:12px 16px; border-bottom:1px solid #F3F4F6; vertical-align:middle; color:#1F2937; }
+  .gsv-table tbody tr { transition:background 100ms ease; }
+  .gsv-table tbody tr:hover { background:#F8FAFC; }
+  .gsv-th-num, .gsv-td-num { text-align:right !important; font-variant-numeric:tabular-nums; }
+  .gsv-code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-weight:700; color:#2563EB; font-size:12px; }
+  .gsv-name { font-weight:600; color:#111827; }
+  .gsv-val-bold { font-weight:700; color:#15803D; font-variant-numeric:tabular-nums; }
+  .gsv-badge-type { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:#E0F2FE; color:#0284C7; }
+  .gsv-badge-machine { background:#FEF3C7; color:#B45309; }
+  .gsv-status-pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .gsv-status-pill--ok { background:#DCFCE7; color:#15803D; }
+  .gsv-status-pill--low { background:#FEE2E2; color:#B91C1C; }
 
-  /* Grand total */
-  .gsv-total { display:flex; justify-content:space-between; align-items:center; gap:24px; flex-wrap:wrap; background:var(--color-primary); border-radius:10px; padding:28px 32px; box-shadow:0 4px 14px rgba(37,99,235,.25); }
-  .gsv-total-label { display:flex; align-items:center; gap:12px; color:#fff; font-size:18px; font-weight:600; }
-  .gsv-total-value { color:#fff; font-size:36px; font-weight:700; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; }
+  /* Footer Row */
+  .gsv-table-footer { background:#F8FAFC; font-weight:700; border-top:2px solid #E2E8F0; }
+  .gsv-table-footer td { padding:14px 16px; color:#111827; font-size:13px; }
 
-  @media (max-width:768px){
-    .gsv-header { flex-direction:column; align-items:flex-start; gap:12px; }
-    .gsv-title { font-size:22px; }
-    .gsv-total { flex-direction:column; align-items:flex-start; gap:12px; }
-    .gsv-total-value { font-size:30px; }
-  }
-  @media (max-width:480px){
-    .gsv-cards { grid-template-columns:1fr; }
-    .gsv-toolbar { flex-direction:column; align-items:stretch; }
-    .gsv-toolbar-group { width:100%; }
-    .gsv-select { min-width:0; width:100%; }
-    .gsv-refresh { justify-content:center; }
+  /* Empty & Loading */
+  .gsv-loading { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:60px 20px; color:#6B7280; font-size:14px; }
+  .gsv-empty { text-align:center; padding:48px 20px; color:#6B7280; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .gsv-empty-icon { width:44px; height:44px; border-radius:50%; background:#EFF6FF; color:#2563EB; display:flex; align-items:center; justify-content:center; margin-bottom:4px; }
+  .gsv-empty-title { font-size:15px; font-weight:600; color:#111827; }
+  .gsv-empty-sub { font-size:13px; color:#6B7280; max-width:320px; }
+
+  /* Error */
+  .gsv-error-banner { background:#FEF2F2; border:1px solid #FECACA; border-radius:10px; padding:16px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; color:#991B1B; font-size:13px; }
+
+  @media print {
+    .gsv-header-actions, .gsv-toolbar, .gsv-refresh-btn { display:none !important; }
+    .gsv-valuation { padding:0 !important; }
+    .gsv-table-card { border:1px solid #ccc !important; box-shadow:none !important; }
   }
 `;
 
 export const GSValuation = () => {
-  const [items, setItems]   = useState([]);
-  const [dept, setDept]     = useState('');
-  const [loading, setLoading] = useState(true);
+  const [materials, setMaterials] = useState([]);
+  const [machines, setMachines]   = useState([]);
+  const [dept, setDept]           = useState('');
+  const [category, setCategory]   = useState('');
+  const [itemType, setItemType]   = useState('All');
+  const [search, setSearch]       = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const params = {};
-      if (dept) params.department = dept;
-      const r = await api.get('/api/v1/printing-assets/store/materials', { params });
-      setItems(r.data.data || []);
-    } catch { setItems([]); }
-    setLoading(false);
+      const matParams = {};
+      const macParams = {};
+      if (dept) {
+        matParams.department = dept;
+        macParams.department = dept;
+      }
+      const [rMats, rMacs] = await Promise.allSettled([
+        api.get('/api/v1/printing-assets/store/materials', { params: matParams }),
+        api.get('/api/v1/printing-assets/store/machines', { params: macParams }),
+      ]);
+
+      if (rMats.status === 'fulfilled') {
+        const d = rMats.value?.data?.data !== undefined ? rMats.value.data.data : (Array.isArray(rMats.value?.data) ? rMats.value.data : []);
+        setMaterials(Array.isArray(d) ? d : []);
+      } else {
+        console.error('Materials load failed:', rMats.reason);
+      }
+
+      if (rMacs.status === 'fulfilled') {
+        const d = rMacs.value?.data?.data !== undefined ? rMacs.value.data.data : (Array.isArray(rMacs.value?.data) ? rMacs.value.data : []);
+        setMachines(Array.isArray(d) ? d : []);
+      }
+
+      if (rMats.status === 'rejected' && rMacs.status === 'rejected') {
+        throw new Error(rMats.reason?.response?.data?.message || rMats.reason?.message || 'Failed to load valuation data');
+      }
+    } catch (err) {
+      console.error('Valuation load error:', err);
+      setError(err?.response?.data?.message || err?.message || 'Failed to connect to valuation service');
+    } finally {
+      setLoading(false);
+    }
   }, [dept]);
 
   useEffect(() => { load(); }, [load]);
 
-  const grouped = items.reduce((acc, m) => {
-    const d = m.department || 'Unknown';
-    if (!acc[d]) acc[d] = { count: 0, total: 0 };
-    acc[d].count++;
-    acc[d].total += parseFloat(m.total_value || 0);
-    return acc;
-  }, {});
+  // Normalize all items into a unified valuation list
+  const unifiedItems = [
+    ...materials.map(m => {
+      const qty = parseFloat(m.quantity_in_store) || 0;
+      const unitVal = parseFloat(m.unit_value) || 0;
+      const totalVal = parseFloat(m.total_value) || (qty * unitVal);
+      const reorder = parseFloat(m.reorder_level) || 0;
+      return {
+        id: `mat-${m.id}`,
+        rawId: m.id,
+        code: m.material_id || `MAT-${m.id}`,
+        name: m.material_name || 'Unnamed Material',
+        type: 'Material',
+        category: m.category || 'Consumable',
+        department: m.department || 'Printing',
+        quantity: qty,
+        unit: m.unit || 'unit',
+        unitValue: unitVal,
+        totalValue: totalVal,
+        reorderLevel: reorder,
+        isLow: qty <= reorder,
+      };
+    }),
+    ...machines.map(mc => {
+      const val = parseFloat(mc.internal_value) || 0;
+      return {
+        id: `mac-${mc.id}`,
+        rawId: mc.id,
+        code: mc.machine_id || `MAC-${mc.id}`,
+        name: mc.machine_name || 'Unnamed Machine',
+        type: 'Machine',
+        category: 'Equipment',
+        department: mc.department || 'Printing',
+        quantity: 1,
+        unit: 'unit',
+        unitValue: val,
+        totalValue: val,
+        reorderLevel: 0,
+        isLow: false,
+        status: mc.status || 'In Store',
+      };
+    })
+  ];
 
-  const grandTotal = items.reduce((s, m) => s + parseFloat(m.total_value || 0), 0);
+  // Dynamic filter options
+  const allDepartments = Array.from(new Set([
+    ...DEPARTMENTS,
+    ...unifiedItems.map(i => i.department).filter(Boolean)
+  ])).sort();
+
+  const allCategories = Array.from(new Set(
+    unifiedItems.map(i => i.category).filter(Boolean)
+  )).sort();
+
+  // Filter items
+  const filteredItems = unifiedItems.filter(item => {
+    if (dept && item.department.toLowerCase() !== dept.toLowerCase()) return false;
+    if (category && item.category.toLowerCase() !== category.toLowerCase()) return false;
+    if (itemType !== 'All' && item.type !== itemType) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const matchCode = (item.code || '').toLowerCase().includes(q);
+      const matchName = (item.name || '').toLowerCase().includes(q);
+      const matchCat  = (item.category || '').toLowerCase().includes(q);
+      const matchDept = (item.department || '').toLowerCase().includes(q);
+      if (!matchCode && !matchName && !matchCat && !matchDept) return false;
+    }
+    return true;
+  });
+
+  // KPI Calculations
+  const grandTotal = unifiedItems.reduce((s, i) => s + i.totalValue, 0);
+  const materialsVal = unifiedItems.filter(i => i.type === 'Material').reduce((s, i) => s + i.totalValue, 0);
+  const machinesVal = unifiedItems.filter(i => i.type === 'Machine').reduce((s, i) => s + i.totalValue, 0);
+  const totalStockUnits = unifiedItems.filter(i => i.type === 'Material').reduce((s, i) => s + i.quantity, 0);
+
+  // Grouped by department for summary cards
+  const deptSummary = allDepartments.map(d => {
+    const inDept = unifiedItems.filter(i => i.department.toLowerCase() === d.toLowerCase());
+    const val = inDept.reduce((s, i) => s + i.totalValue, 0);
+    const count = inDept.length;
+    const units = inDept.reduce((s, i) => s + i.quantity, 0);
+    const pct = grandTotal > 0 ? (val / grandTotal) * 100 : 0;
+    return { department: d, totalValue: val, count, units, pct };
+  }).filter(d => d.count > 0).sort((a, b) => b.totalValue - a.totalValue);
+
+  // Filtered totals
+  const filteredTotalValue = filteredItems.reduce((s, i) => s + i.totalValue, 0);
+  const filteredTotalQty   = filteredItems.reduce((s, i) => s + i.quantity, 0);
+
+  // CSV Export handler
+  const exportCSV = () => {
+    if (filteredItems.length === 0) return;
+    const headers = ['Item Code', 'Item Name', 'Type', 'Category', 'Department', 'Quantity', 'Unit', 'Unit Value (ETB)', 'Total Value (ETB)'];
+    const rows = filteredItems.map(i => [
+      `"${i.code}"`,
+      `"${i.name.replace(/"/g, '""')}"`,
+      `"${i.type}"`,
+      `"${i.category}"`,
+      `"${i.department}"`,
+      i.quantity,
+      `"${i.unit}"`,
+      i.unitValue.toFixed(2),
+      i.totalValue.toFixed(2)
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `inventory_valuation_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const clearFilters = () => {
+    setDept('');
+    setCategory('');
+    setItemType('All');
+    setSearch('');
+  };
 
   return (
     <div className="gsv-valuation">
@@ -2899,56 +3807,276 @@ export const GSValuation = () => {
         {/* ── HEADER ── */}
         <div className="gsv-header">
           <div className="gsv-header-left">
-            <span className="gsv-header-icon"><DollarSign size={18} /></span>
+            <div className="gsv-header-icon"><DollarSign size={24} /></div>
             <div>
               <h1 className="gsv-title">Inventory Valuation</h1>
-              <p className="gsv-subtitle">Stock value grouped by department</p>
+              <p className="gsv-subtitle">Real-time stock asset ledger, unit costs, and department valuation breakdown</p>
             </div>
+          </div>
+          <div className="gsv-header-actions">
+            <button className="gsv-btn-action gsv-btn-outline" onClick={() => window.print()}>
+              <Printer size={15} /> Print Valuation
+            </button>
+            <button className="gsv-btn-action gsv-btn-primary" onClick={exportCSV} disabled={filteredItems.length === 0}>
+              <Download size={15} /> Export CSV
+            </button>
           </div>
         </div>
 
-        {/* ── TOOLBAR ── */}
+        {/* ── ERROR BANNER ── */}
+        {error && (
+          <div className="gsv-error-banner">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertTriangle size={18} />
+              <span><strong>Connection Error:</strong> {error}</span>
+            </div>
+            <button className="gsv-btn-action gsv-btn-outline" style={{ height: 32, fontSize: 12 }} onClick={load}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* ── TOP KPI CARDS ── */}
+        <div className="gsv-kpis">
+          <div className="gsv-kpi-card gsv-kpi-card--green">
+            <div className="gsv-kpi-label">
+              <span>Grand Total Valuation</span>
+              <DollarSign size={16} color="#16A34A" />
+            </div>
+            <div className="gsv-kpi-val">
+              <small>ETB</small>
+              {grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="gsv-kpi-sub">{unifiedItems.length} total catalogued assets</div>
+          </div>
+
+          <div className="gsv-kpi-card">
+            <div className="gsv-kpi-label">
+              <span>Consumables Stock</span>
+              <Package size={16} color="#2563EB" />
+            </div>
+            <div className="gsv-kpi-val">
+              <small>ETB</small>
+              {materialsVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="gsv-kpi-sub">{materials.length} material lines in store</div>
+          </div>
+
+          <div className="gsv-kpi-card gsv-kpi-card--amber">
+            <div className="gsv-kpi-label">
+              <span>Machinery &amp; Equipment</span>
+              <Factory size={16} color="#D97706" />
+            </div>
+            <div className="gsv-kpi-val">
+              <small>ETB</small>
+              {machinesVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="gsv-kpi-sub">{machines.length} machine units in store</div>
+          </div>
+
+          <div className="gsv-kpi-card gsv-kpi-card--purple">
+            <div className="gsv-kpi-label">
+              <span>Physical Units On Hand</span>
+              <ClipboardList size={16} color="#7C3AED" />
+            </div>
+            <div className="gsv-kpi-val">
+              {totalStockUnits.toLocaleString()} <small style={{ fontSize: 14 }}>units</small>
+            </div>
+            <div className="gsv-kpi-sub">Across all consumable categories</div>
+          </div>
+        </div>
+
+        {/* ── TOOLBAR / FILTERS ── */}
         <div className="gsv-toolbar">
-          <div className="gsv-toolbar-group">
+          <div className="gsv-group">
             <label className="gsv-label">Department</label>
-            <select className="gsv-select" value={dept} onChange={e => setDept(e.target.value)}>
+            <select className="gsv-input" value={dept} onChange={e => setDept(e.target.value)}>
               <option value="">All Departments</option>
-              {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+              {allDepartments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>
-          <button className="gsv-refresh" onClick={load} disabled={loading}>
-            {loading && <SegmentedSpinner size={16} color="#fff" />}
+
+          <div className="gsv-group">
+            <label className="gsv-label">Category</label>
+            <select className="gsv-input" value={category} onChange={e => setCategory(e.target.value)}>
+              <option value="">All Categories</option>
+              {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          <div className="gsv-group">
+            <label className="gsv-label">Asset Type</label>
+            <select className="gsv-input" value={itemType} onChange={e => setItemType(e.target.value)}>
+              <option value="All">All Types</option>
+              <option value="Material">Materials / Consumables</option>
+              <option value="Machine">Machines / Equipment</option>
+            </select>
+          </div>
+
+          <div className="gsv-group" style={{ minWidth: 200 }}>
+            <label className="gsv-label">Search</label>
+            <input
+              type="text"
+              className="gsv-input"
+              placeholder="Search code, name, category..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+
+          <button className="gsv-refresh-btn" onClick={load} disabled={loading}>
+            {loading ? <SegmentedSpinner size={16} color="#fff" /> : <RefreshCw size={15} />}
             <span>Refresh</span>
           </button>
         </div>
 
-        {/* ── BODY ── */}
-        {loading ? (
-          <div className="gsv-loading">
-            <SegmentedSpinner size={28} color="#2563EB" />
-            <span>Calculating valuation...</span>
-          </div>
-        ) : (
-          <>
+        {/* ── DEPARTMENT DISTRIBUTION BREAKDOWN ── */}
+        {deptSummary.length > 0 && !dept && (
+          <div>
+            <div className="gsv-dist-title">
+              <span>Department Valuation Distribution</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#6B7280' }}>Click a department to filter</span>
+            </div>
             <div className="gsv-cards">
-              {Object.entries(grouped).map(([d, v]) => (
-                <div key={d} className="gsv-card">
+              {deptSummary.map(d => (
+                <div
+                  key={d.department}
+                  className={`gsv-card ${dept === d.department ? 'gsv-card--active' : ''}`}
+                  onClick={() => setDept(dept === d.department ? '' : d.department)}
+                  title={`Filter by ${d.department}`}
+                >
                   <div className="gsv-card-top">
-                    <DeptBadge dept={d} />
-                    <span className="gsv-card-count">{v.count} line{v.count !== 1 ? 's' : ''}</span>
+                    <DeptBadge dept={d.department} />
+                    <span className="gsv-card-count">{d.count} item{d.count !== 1 ? 's' : ''}</span>
                   </div>
-                  <div className="gsv-card-value">ETB <span className="gsv-card-currency">{v.total.toLocaleString()}</span></div>
-                  <div className="gsv-card-caption">Total Value</div>
+                  <div className="gsv-card-value">
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#6B7280', marginRight: 4 }}>ETB</span>
+                    {d.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="gsv-card-bar-bg">
+                    <div className="gsv-card-bar-fill" style={{ width: `${Math.max(5, d.pct)}%` }} />
+                  </div>
+                  <div className="gsv-card-footer">
+                    <span>{d.units.toLocaleString()} units</span>
+                    <span>{d.pct.toFixed(1)}% of total</span>
+                  </div>
                 </div>
               ))}
             </div>
-
-            <div className="gsv-total">
-              <div className="gsv-total-label"><Droplet size={18} /> Grand Total Store Value</div>
-              <div className="gsv-total-value">ETB {grandTotal.toLocaleString()}</div>
-            </div>
-          </>
+          </div>
         )}
+
+        {/* ── DETAILED INVENTORY VALUATION TABLE ── */}
+        <div className="gsv-table-card">
+          <div className="gsv-table-head-bar">
+            <div>
+              <span className="gsv-table-title">Detailed Stock Valuation Ledger</span>
+              <span className="gsv-table-count" style={{ marginLeft: 10 }}>({filteredItems.length} lines)</span>
+            </div>
+            {(dept || category || itemType !== 'All' || search) && (
+              <button
+                className="gsv-btn-action gsv-btn-outline"
+                style={{ height: 28, fontSize: 12, padding: '0 10px' }}
+                onClick={clearFilters}
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="gsv-loading">
+              <SegmentedSpinner size={28} color="#2563EB" />
+              <span>Calculating stock valuation ledger...</span>
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="gsv-empty">
+              <div className="gsv-empty-icon"><Search size={22} /></div>
+              <div className="gsv-empty-title">No inventory items found</div>
+              <div className="gsv-empty-sub">
+                No stock records match the current filters. Try resetting the department or search query.
+              </div>
+              <button
+                className="gsv-btn-action gsv-btn-primary"
+                style={{ marginTop: 8 }}
+                onClick={clearFilters}
+              >
+                Reset Filters
+              </button>
+            </div>
+          ) : (
+            <div className="gsv-table-wrap">
+              <table className="gsv-table">
+                <thead>
+                  <tr>
+                    <th>Item Code</th>
+                    <th>Item Description</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Department</th>
+                    <th className="gsv-th-num">Qty in Store</th>
+                    <th className="gsv-th-num">Unit Value (ETB)</th>
+                    <th className="gsv-th-num">Total Value (ETB)</th>
+                    <th>Stock Health</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map(item => (
+                    <tr key={item.id}>
+                      <td><span className="gsv-code">{item.code}</span></td>
+                      <td><span className="gsv-name">{item.name}</span></td>
+                      <td>
+                        <span className={`gsv-badge-type ${item.type === 'Machine' ? 'gsv-badge-machine' : ''}`}>
+                          {item.type}
+                        </span>
+                      </td>
+                      <td style={{ color: '#4B5563' }}>{item.category}</td>
+                      <td><DeptBadge dept={item.department} /></td>
+                      <td className="gsv-td-num">
+                        <strong>{item.quantity.toLocaleString()}</strong>
+                        <span style={{ fontSize: 11, color: '#6B7280', marginLeft: 4 }}>{item.unit}</span>
+                      </td>
+                      <td className="gsv-td-num">
+                        ETB {item.unitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="gsv-td-num">
+                        <span className="gsv-val-bold">
+                          ETB {item.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                      <td>
+                        {item.type === 'Machine' ? (
+                          <span className="gsv-status-pill gsv-status-pill--ok">{item.status}</span>
+                        ) : item.isLow ? (
+                          <span className="gsv-status-pill gsv-status-pill--low">Low Stock</span>
+                        ) : (
+                          <span className="gsv-status-pill gsv-status-pill--ok">Adequate</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="gsv-table-footer">
+                    <td colSpan={5}>
+                      Filtered Total ({filteredItems.length} lines)
+                    </td>
+                    <td className="gsv-td-num">
+                      {filteredTotalQty.toLocaleString()} units
+                    </td>
+                    <td className="gsv-td-num" style={{ color: '#6B7280' }}>
+                      —
+                    </td>
+                    <td className="gsv-td-num" style={{ color: '#15803D', fontSize: 15 }}>
+                      ETB {filteredTotalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -33,9 +33,10 @@ const MODULE_PREFIX_MAP = [
   { re: /^HR_/, module: 'HR' },
   { re: /^(EXPENSE|FINANCE|BUDGET|COA_|PO_|INVOICE|PAYMENT|BANK_|PETTY_CASH|APPROVER_|ACCOUNT_|MONTH_END)/, module: 'Finance' },
   { re: /PHARMACY|MEDICINE|DRUG|PHARM_/, module: 'Pharmacy' },
-  { re: /^(STORE_)/, module: 'Pharmacy Store' },
+  { re: /^(PHARMACY_STORE|STORE_PHARMACY)/, module: 'Pharmacy Store' },
   { re: /^(INVENTORY|PRODUCT|STOCK|CATEGORY|DAMAGED_ITEMS|LOST_ITEMS|WAREHOUSE)/, module: 'Inventory' },
-  { re: /^(STORE|STORE_QUANTITY_UPDATE|STORE_VALUE_UPDATE|STORE_MATERIAL_UPDATE|REQUISITION|ITEMS_ISSUED|GRN_|GOODS_|ISSUE_|RECEIV)/, module: 'Store' },
+  { re: /^PRINTING_MATERIAL/, module: 'Store' },
+  { re: /^(STORE|STORE_|STORE_QUANTITY_UPDATE|STORE_VALUE_UPDATE|STORE_MATERIAL_UPDATE|GENERAL_STORE|REQUISITION|ITEMS_ISSUED|GRN_|GOODS_|ISSUE_|RECEIV)/, module: 'Store' },
   { re: /^(PURCHASE|TENDER|BID_|SUPPLIER|VENDOR_|PROCUREMENT)/, module: 'Procurement' },
   { re: /^(SALE|ORDER|QUOTE|CUSTOMER|CART_|POS_|SUPPORT_)/, module: 'Sales' },
   { re: /^(PRINTING|TAX_RECEIPT)/, module: 'Printing' },
@@ -260,9 +261,15 @@ const getLogs = async (user, filters = {}) => {
         .orWhere('user_id', user.id);
     });
   } else if (isStore) {
-    // Store Keepers see all Store module logs, excluding automated system actions
-    q = q.where('module', 'Store')
-          .whereNotIn('user_name', AUTO_USERS);
+    // Store Keepers see all Store, General Store, and general material logs
+    q = q.where((builder) => {
+      builder
+        .whereIn('module', ['Store', 'General Store', 'Inventory'])
+        .orWhere((b2) => {
+          b2.where('module', 'Printing').whereILike('action', '%MATERIAL%');
+        })
+        .orWhere('user_id', user.id);
+    }).whereNotIn('user_name', AUTO_USERS);
   } else if (isSales) {
     // Sales Manager/Head sees every Sales module activity plus their own
     // actions anywhere (covers bids/chat/etc. triggered from the sales dashboard)
@@ -302,8 +309,17 @@ const getLogs = async (user, filters = {}) => {
   // Optional filters
   if (filters.module && !isCEO) {
     q = q.where((builder) => {
-      builder.where('module', filters.module)
-             .orWhere('department', filters.module);
+      if (filters.module === 'Store') {
+        builder.whereIn('module', ['Store', 'General Store', 'Inventory'])
+               .orWhere((b2) => {
+                 b2.where('module', 'Printing').whereILike('action', '%MATERIAL%');
+               })
+               .orWhere('department', 'Store')
+               .orWhere('department', 'General Store');
+      } else {
+        builder.where('module', filters.module)
+               .orWhere('department', filters.module);
+      }
     });
   }
   if (filters.action)  q = q.where('action', filters.action);
