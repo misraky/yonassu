@@ -387,7 +387,7 @@ const FarmingServicePage = () => {
   return (
     <div className={styles.pageWrapper}>
       <PublicNav />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&display=swap');`}</style>
+      <style>{`/* Google Fonts removed (offline env) */`}</style>
 
       {/* Hero Section */}
       <section className={styles.heroSection}>

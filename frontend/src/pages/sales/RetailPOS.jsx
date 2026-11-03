@@ -1096,9 +1096,7 @@ const addToCart = (item) => {
   return (
     <>
     <div style={{ margin: '-24px', padding: 0, minHeight: '100vh', background: 'var(--bg-page)', width: 'calc(100% + 48px)', boxSizing: 'border-box', fontFamily: "'Inter', sans-serif" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        :root {
+      <style>{`:root {
           --primary: #2563EB;
           --primary-hover: #1D4ED8;
           --header: #1D4ED8;

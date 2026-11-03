@@ -8,10 +8,7 @@ import pharmacyService from '../../services/pharmacyService';
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
 // ─── Branch-page scoped CSS (enterprise 24-rule system) ──────────────────────
-const BRANCH_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-  /* ── Keyframes ── */
+const BRANCH_CSS = `/* ── Keyframes ── */
   @keyframes pb-fadeUp  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
   @keyframes pb-slideIn { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:translateX(0); } }
   @keyframes pb-toastIn { from { opacity:0; transform:translateX(60px); } to { opacity:1; transform:translateX(0); } }

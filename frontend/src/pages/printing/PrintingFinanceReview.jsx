@@ -6,9 +6,7 @@ import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 import ImageViewer from '../../components/ui/ImageViewer';
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-  @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+const CSS = `@keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
   @keyframes spin   { to{transform:rotate(360deg)} }
   .pr-page { padding:24px; background:#f1f5f9; min-height:100vh; font-family:'Inter',sans-serif; }
   .pr-card { background:white; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:20px; animation:fadeUp .35s ease both; overflow:hidden; }

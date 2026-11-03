@@ -6,11 +6,7 @@
    Feeling: calm, craftsmaden — a quiet shop ledger, one green thread.
    Layout: plain list rows; detail expands below the row via a
    chevron toggle at the far right of every row.
-   ================================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
-
-*, *::before, *::after {
+   ================================================================ */*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;

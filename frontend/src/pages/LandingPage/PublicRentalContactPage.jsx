@@ -3,10 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Phone, Mail, Send, CheckCircle, AlertCircle, ArrowLeft, MapPin } from 'lucide-react';
 import api from '../../services/apiClient';
 
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
-  .prc-overlay {
+const STYLES = `.prc-overlay {
     position: fixed;
     inset: 0;
     z-index: 9999;

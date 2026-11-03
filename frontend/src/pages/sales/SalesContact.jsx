@@ -9,10 +9,7 @@ import api from '../../services/apiClient';
    compose. Sales-backend logic: /sales-settings + /sales-settings/messages.
 ────────────────────────────────────────────────────────────────────────────── */
 
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-  .sc-root {
+const STYLES = `.sc-root {
     --color-primary:        #2563EB;
     --color-primary-hover:  #1D4ED8;
     --color-bg-page:        #F5F6FA;

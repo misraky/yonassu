@@ -5,10 +5,7 @@ import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
 /* ─── Enterprise Global Styles ─── */
 const GlobalStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-    :root {
+  <style>{`:root {
       --color-primary: #2563EB;
       --color-primary-hover: #1D4ED8;
       --color-bg-page: #F5F6FA;

@@ -7,10 +7,7 @@ import React from 'react';
 */
 
 export const StageStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..900&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
-
-    .stg-root {
+  <style>{`.stg-root {
       /* 1. Foundation & Architecture */
       --background: 45 25% 97%;    /* warm off-white, not pure #FFF */
       --foreground: 40 8% 12%;     /* warm near-black, not #000 */

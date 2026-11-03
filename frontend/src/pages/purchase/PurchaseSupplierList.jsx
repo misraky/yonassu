@@ -9,10 +9,7 @@ import {
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
 /* ─── Styles ─────────────────────────────────────────────── */
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-  /* Base page wrapper */
+const STYLES = `/* Base page wrapper */
   .psl-page {
     padding: 24px;
     background: #F5F6FA;

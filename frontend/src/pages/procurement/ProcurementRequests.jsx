@@ -154,9 +154,7 @@ const ProcurementRequests = () => {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <title>Procurement Request - ${selected.pr_no}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Procurement Request - ${selected.pr_no}</title>
   <style>
     body { font-family: 'Inter', sans-serif; background: #fff; color: #111827; margin: 0; padding: 40px; }
     @media print { @page { margin: 0; size: A4; } body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none !important; } }

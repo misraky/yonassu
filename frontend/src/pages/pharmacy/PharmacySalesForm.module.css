@@ -1,11 +1,7 @@
 /* ================================================================
    PharmacySalesForm.module.css  — Premium POS Design System
    CSS Master Note: HSL variables · 8-pt grid · Mobile-first
-   ================================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-:root {
+   ================================================================ */:root {
   --ph-bg:            #F8FAFC;
   --ph-card:          #FFFFFF;
   --ph-border:        #E2E8F0;

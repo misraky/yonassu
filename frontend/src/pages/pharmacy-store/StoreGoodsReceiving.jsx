@@ -4,10 +4,7 @@ import { Truck, RefreshCw, Plus, Trash2, Search, ChevronDown, ChevronUp, Eye, Fi
 import { NotifStore } from './StoreHomeNew';
 
 /* ── Enterprise CSS ─────────────────────────────────────────────── */
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-  :root {
+const CSS = `:root {
     --cp:         #2563EB;
     --cp-h:       #1D4ED8;
     --cbg:        #F5F6FA;

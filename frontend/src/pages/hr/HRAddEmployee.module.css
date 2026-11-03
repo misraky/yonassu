@@ -1,7 +1,4 @@
-/* ── Enterprise ERP Design System ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-
-.pageContainer, .container {
+/* ── Enterprise ERP Design System ── */.pageContainer, .container {
   /* 2. Color Palette */
   --color-primary: #2563EB;
   --color-primary-hover: #1D4ED8;

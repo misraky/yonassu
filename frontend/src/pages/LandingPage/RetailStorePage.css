@@ -3,11 +3,7 @@
    Follows: The Ultimate General Design & CSS Master Note
    Design: Premium, dark-hero, glassmorphism accents,
            smooth micro-animations, vibrant brand palette
-   ══════════════════════════════════════════════ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-/* ── Keyframes ── */
+   ══════════════════════════════════════════════ *//* ── Keyframes ── */
 @keyframes shimmerAnim {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }

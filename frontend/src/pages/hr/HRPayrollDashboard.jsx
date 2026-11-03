@@ -156,9 +156,7 @@ const HRPayrollDashboard = () => {
     const now = new Date();
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <title>Payroll — ${monthName} ${year}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
+<style>*{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',sans-serif;background:#fff;color:#111827;padding:32px;font-size:12px}
   .doc-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #2563EB;padding-bottom:16px;margin-bottom:24px}
   .org{font-size:20px;font-weight:700;color:#111827;margin-bottom:4px}

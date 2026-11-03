@@ -71,9 +71,7 @@ const PrintingPublicTrack = () => {
   return (
     <>
     <div style={{ minHeight: '100vh', background: `linear-gradient(160deg, #1B5E20 0%, #2E7D32 30%, #388E3C 55%, #A5D6A7 80%, #E8F5E9 100%)`, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        @keyframes spin { to { transform: rotate(360deg); } }
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }
         @keyframes float {
           0%,100% { transform: translateY(0px) rotate(0deg); }
           33% { transform: translateY(-8px) rotate(3deg); }

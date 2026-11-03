@@ -9,10 +9,7 @@ import {
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
 /* ─── shared CSS (same token set) ───────────────────────────────────────── */
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-  .rec-page {
+const STYLES = `.rec-page {
     padding: 32px;
     background: #F8FAFC;
     min-height: calc(100vh - 60px);
@@ -153,9 +150,7 @@ const ReceiptModal = ({ rec, onClose }) => {
       <html>
         <head>
           <title>Receipt ${rec.refNumber}</title>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-            body { 
+          <style>body { 
               font-family: 'Inter', sans-serif; 
               padding: 40px; 
               color: #1e293b; 

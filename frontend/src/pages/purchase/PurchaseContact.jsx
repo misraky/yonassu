@@ -22,10 +22,7 @@ import api from '../../services/apiClient';
   17. N/A — this IS the page; form is on the same page.
 ──────────────────────────────────────────────────────────────────────────── */
 
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-  /* ── 1. Root wrapper ── */
+const STYLES = `/* ── 1. Root wrapper ── */
   .sc-root {
     width: 100%;
     min-height: 100%;

@@ -136,9 +136,7 @@ const HRPayroll = () => {
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <title>Salary Report — SUTANA Enterprise</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
-  * { box-sizing:border-box; margin:0; padding:0; }
+<style>* { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:'Inter',sans-serif; background:#fff; color:#1a1a1a; padding:28px 32px; }
   .print-header { border-bottom:4px solid #2563EB; padding-bottom:18px; margin-bottom:22px; display:flex; justify-content:space-between; align-items:flex-end; }
   .org-name { font-size:24px; font-weight:900; color:#1D4ED8; }

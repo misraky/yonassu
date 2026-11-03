@@ -4,9 +4,7 @@ import { Save, ArrowLeft, Loader2, Package, Tag, Calendar as CalendarIcon, Dolla
 import apiClient from '../../services/apiClient';
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+const CSS = `@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   .adjust-page {
     font-family: 'Inter', sans-serif;
     background: #F5F5F5;

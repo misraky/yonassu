@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { AlertTriangle, BarChart, Bell, Box, CheckCircle, ClipboardList, CornerDownLeft, DollarSign, Download, Droplet, Factory, FileText, Leaf, Mailbox, Package, Pin, Plus, Printer, Radio, Receipt, RefreshCw, Scroll, Search, Send, Settings, Shield, ShoppingBag, ShoppingCart, Shuffle, Sprout, TrendingDown, Truck, Wrench, Zap } from 'lucide-react';
+import { AlertTriangle, BarChart, Bell, Box, CheckCircle, ChevronDown, ChevronUp, ClipboardList, CornerDownLeft, DollarSign, Download, Droplet, Factory, FileText, Leaf, Mailbox, Package, Pin, Plus, Printer, Radio, Receipt, RefreshCw, Scroll, Search, Send, Settings, Shield, ShoppingBag, ShoppingCart, Shuffle, Sprout, TrendingDown, Truck, Wrench, Zap } from 'lucide-react';
 
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
@@ -959,7 +959,7 @@ td { padding: 6px 8px; border-bottom: 1px solid #E5E7EB; vertical-align: top; }
               const reorderLvl = parseInt(m.reorder_level) || 10;
               const deptC = deptColors[m.department] || '#6B7280';
               return (
-                <div key={m.id} className={`gsi-tr${low ? ' gsi-tr--low' : ''}`}>',
+                <div key={m.id} className={`gsi-tr${low ? ' gsi-tr--low' : ''}`}>
                   <div className="gsi-td gsi-td--idx gsi-num">{i + 1}</div>
                   <div className="gsi-td gsi-td--strong">
                     <div>
@@ -973,7 +973,7 @@ td { padding: 6px 8px; border-bottom: 1px solid #E5E7EB; vertical-align: top; }
                   <div className="gsi-td">
                     <span className="gsi-badge" style={{ background: `${deptC}1A`, color: deptC, fontWeight: 600 }}>{m.department || 'General'}</span>
                   </div>
-                  <div className={`gsi-td gsi-td--num gsi-num${low ? ' gsi-value-low' : ''}`}>',
+                  <div className={`gsi-td gsi-td--num gsi-num${low ? ' gsi-value-low' : ''}`}>
                     {parseFloat(m.quantity_in_store || 0).toLocaleString()}
                   </div>
                   <div className="gsi-td gsi-td--num gsi-num">{reorderLvl}</div>
@@ -2568,39 +2568,73 @@ export const GSIssueItem = () => {
 
   const load = useCallback(async () => {
     try {
-      const [rMat, rReq, rCarReq, rPos] = await Promise.all([
+      const [rMat, rReq, rCarReq, rPos, rLogs] = await Promise.all([
         api.get('/api/v1/printing-assets/store/materials'),
         api.get('/api/v1/printing-assets/material-requests').catch(() => ({ data: { data: [] } })),
         api.get('/api/v1/car-renting/store-requests').catch(() => ({ data: { data: [] } })),
-        api.get('/api/v1/store-sales-requests').catch(() => ({ data: { data: [] } }))
+        api.get('/api/v1/store-sales-requests').catch(() => ({ data: { data: [] } })),
+        api.get('/api/v1/printing-assets/log', { params: { action_type: 'Issue to Department' } }).catch(() => ({ data: { data: [] } })),
       ]);
-      setMaterials(rMat.data.data || []);
+      const mats = rMat.data?.data || rMat.data || [];
+      setMaterials(Array.isArray(mats) ? mats : []);
       
-      const allPrinting = rReq.data?.data || [];
-      setRequests(allPrinting.filter(r => r.status === 'APPROVED'));
+      const allPrinting = rReq.data?.data || rReq.data || [];
+      setRequests(Array.isArray(allPrinting) ? allPrinting.filter(r => r.status === 'APPROVED') : []);
       
-      const allCarAgri = rCarReq.data?.data || [];
-      setCarRequests(allCarAgri.filter(r => r.status === 'PENDING_STORE'));
+      const allCarAgri = rCarReq.data?.data || rCarReq.data || [];
+      setCarRequests(Array.isArray(allCarAgri) ? allCarAgri.filter(r => r.status === 'PENDING_STORE') : []);
       
-      const allPos = rPos.data?.data || [];
-      setPosRequests(allPos.filter(r => r.status === 'Pending'));
+      const allPos = rPos.data?.data || rPos.data || [];
+      setPosRequests(Array.isArray(allPos) ? allPos.filter(r => r.status === 'Pending') : []);
 
       // Combine histories
-      const mapHist = (arr, type, defDept) => arr.map(r => ({
+      const mapHist = (arr, type, defDept) => (Array.isArray(arr) ? arr : []).map(r => ({
         ...r,
         req_type: type,
         department: r.department || defDept,
-        date: r.created_at || r.createdAt || r.date || new Date().toISOString(),
+        date: r.created_at || r.createdAt || r.date || r.date_time || new Date().toISOString(),
         request_number: r.request_code || r.request_number || r.id,
-        item_count: r.item_count || (type === 'pos' ? (() => { try { return JSON.parse(r.cart_items || '[]').length; } catch(e) { return 1; }})() : (r.items ? r.items.length : 0)),
+        item_count: r.item_count || (type === 'pos' ? (() => { try { return JSON.parse(r.cart_items || '[]').length; } catch(e) { return 1; }})() : (r.items ? (typeof r.items === 'number' ? r.items : r.items.length) : 1)),
         status: r.status
       }));
 
-      const histCar = mapHist(allCarAgri.filter(r => r.status !== 'PENDING_STORE'), 'car_agri', 'Car Rental');
-      const histPrint = mapHist(allPrinting.filter(r => r.status !== 'APPROVED' && r.status !== 'PENDING'), 'printing', 'Printing');
-      const histPos = mapHist(allPos.filter(r => r.status !== 'Pending'), 'pos', 'Sales');
+      const histCar = mapHist(Array.isArray(allCarAgri) ? allCarAgri.filter(r => r.status !== 'PENDING_STORE') : [], 'car_agri', 'Car Rental');
+      const histPrint = mapHist(Array.isArray(allPrinting) ? allPrinting.filter(r => r.status !== 'APPROVED' && r.status !== 'PENDING') : [], 'printing', 'Printing');
+      const histPos = mapHist(Array.isArray(allPos) ? allPos.filter(r => r.status !== 'Pending') : [], 'pos', 'Sales');
 
-      const hist = [...histCar, ...histPrint, ...histPos];
+      // Direct issues recorded in movement log
+      const allIssueLogs = rLogs.data?.data || rLogs.data || [];
+      const histDirect = (Array.isArray(allIssueLogs) ? allIssueLogs : []).map(l => {
+        const mat = (Array.isArray(mats) ? mats : []).find(m => m.material_id === l.item_id);
+        const matName = mat?.material_name || l.notes?.match(/Material registered:\s*([^,]+)/i)?.[1] || l.item_id;
+        const reqBy = l.notes?.match(/Requested by:\s*([^|]+)/i)?.[1]?.trim() || l.moved_by || 'Store Requester';
+        const jobRef = l.notes?.match(/Ref:\s*([^|]+)/i)?.[1]?.trim() || '—';
+        const qtyNum = parseFloat(l.quantity) || 0;
+        const unitName = mat?.unit || '';
+
+        return {
+          id: l.id,
+          req_type: 'issue',
+          department: l.department || l.to_location || 'General Store',
+          date: l.date_time || l.created_at || new Date().toISOString(),
+          request_number: `ISS-${String(l.id).padStart(4, '0')}`,
+          item_count: `${qtyNum} ${unitName}`.trim() || `${qtyNum} units`,
+          status: 'ISSUED',
+          requester_name: reqBy,
+          approver_name: l.approved_by || 'Store Keeper',
+          store_handler_name: l.moved_by || 'Store Keeper',
+          notes: l.notes,
+          job_reference: jobRef,
+          items: [{
+            product_name: `${matName} (${l.item_id})`,
+            quantity_requested: `${qtyNum} ${unitName}`.trim(),
+            quantity_shipped: `${qtyNum} ${unitName}`.trim(),
+            status: 'RELEASED'
+          }]
+        };
+      });
+
+      const hist = [...histCar, ...histPrint, ...histPos, ...histDirect];
       hist.sort((a, b) => new Date(b.date) - new Date(a.date));
       setAllHistory(hist);
 
@@ -2745,6 +2779,13 @@ export const GSIssueItem = () => {
     }
     setExpandedRows(prev => ({ ...prev, [id]: true }));
     if (!rowDetails[id]) {
+      if (req_type === 'issue') {
+        const item = allHistory.find(h => h.id === id && h.req_type === 'issue');
+        if (item) {
+          setRowDetails(prev => ({ ...prev, [id]: item }));
+        }
+        return;
+      }
       setRowDetailLoading(prev => ({ ...prev, [id]: true }));
       try {
         let endpoint;
@@ -2789,7 +2830,7 @@ export const GSIssueItem = () => {
       ? allHistory.filter(r => r.department === 'AgriRent')
       : historyFilter === 'Printing'
       ? allHistory.filter(r => r.department === 'Printing')
-      : allHistory.filter(r => r.department === 'Sales' || r.department === 'Retail POS' || r.req_type === 'pos');
+      : allHistory.filter(r => r.department === 'Sales' || r.department === 'Retail' || r.department === 'Retail POS' || r.req_type === 'pos');
 
   const STATUS = {
     PENDING_STORE:        { label: 'Pending Store',  color: '#f59e0b',  bg: '#FFF8E1' },
@@ -2802,6 +2843,8 @@ export const GSIssueItem = () => {
     APPROVED_BY_STORE:    { label: 'Released ✓',     color: '#059669',  bg: '#E8F5E9' },
     REJECTED_BY_STORE:    { label: 'Rejected',       color: '#ef4444',  bg: '#FFEBEE' },
     COMPLETED:            { label: 'Completed ✓',    color: '#065f46',  bg: '#E8F5E9' },
+    ISSUED:               { label: 'Issued ✓',       color: '#059669',  bg: '#E8F5E9' },
+    'Issue to Department': { label: 'Issued ✓',      color: '#059669',  bg: '#E8F5E9' },
   };
 
   const StatusBadge = ({ status }) => {
@@ -2982,7 +3025,7 @@ export const GSIssueItem = () => {
                         ? allHistory.filter(r => r.department === 'AgriRent').length
                         : f === 'Printing'
                         ? allHistory.filter(r => r.department === 'Printing').length
-                        : allHistory.filter(r => r.department === 'Sales' || r.department === 'Retail POS').length}
+                        : allHistory.filter(r => r.department === 'Sales' || r.department === 'Retail' || r.department === 'Retail POS' || r.req_type === 'pos').length}
                     </span>
                   </button>
                 );
@@ -3019,8 +3062,9 @@ export const GSIssueItem = () => {
                       const isAgri = dept === 'AgriRent';
                       const isPrint = dept === 'Printing';
                       const isSales = dept === 'Sales' || dept === 'Retail POS';
-                      const DeptIcon = isAgri ? Leaf : isPrint ? Printer : isSales ? ShoppingBag : Truck;
-                      const deptClass = isAgri ? 'gsis-badge--agri' : isPrint ? 'gsis-badge--print' : isSales ? 'gsis-badge--sales' : 'gsis-badge--car';
+                      const isCar = dept === 'Car Rental';
+                      const DeptIcon = isAgri ? Leaf : isPrint ? Printer : isSales ? ShoppingBag : isCar ? Truck : Box;
+                      const deptClass = isAgri ? 'gsis-badge--agri' : isPrint ? 'gsis-badge--print' : isSales ? 'gsis-badge--sales' : isCar ? 'gsis-badge--car' : 'gsis-badge--unknown';
 
                       return (
                         <React.Fragment key={`${r.req_type}-${r.id}`}>

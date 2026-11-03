@@ -2,10 +2,7 @@
    MANAGER CHAT PAGE
    Enterprise UI: SAP Fiori / Dynamics 365 quality
    CSS-only pass — no logic/state/component changes
-════════════════════════════════════════════════ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
-/* ── Design Tokens ── */
+════════════════════════════════════════════════ *//* ── Design Tokens ── */
 .container {
   --color-primary:        #2563EB;
   --color-primary-hover:  #1D4ED8;

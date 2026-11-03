@@ -4,9 +4,7 @@ import { CheckCircle, Search, FileText, ClipboardList, XCircle, ExternalLink, Tr
 import apiClient from '../../services/apiClient';
 
 const GlobalStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    :root {
+  <style>{`:root {
       --color-primary: #2563EB; --color-bg-page: #F5F6FA; --color-bg-card: #FFFFFF;
       --color-border: #E5E7EB; --color-text-primary: #111827; --color-text-secondary: #6B7280;
       --color-text-muted: #9CA3AF; --color-success: #16A34A; --color-success-bg: #DCFCE7;

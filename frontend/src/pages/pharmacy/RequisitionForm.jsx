@@ -120,9 +120,7 @@ const RequisitionForm = () => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-  <title>Model 20 Requisition - ${selected.req_no}</title>
+  <script src="https://cdn.tailwindcss.com"></script><title>Model 20 Requisition - ${selected.req_no}</title>
   <style>
     body { font-family: 'Inter', sans-serif; }
     @media print {
@@ -235,7 +233,7 @@ const RequisitionForm = () => {
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'Inter, sans-serif' }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap');`}</style>
+      <style>{`/* Google Fonts removed (offline env) */`}</style>
       <ToastContainer />
       <div style={{ display: 'flex', gap: 10, marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <button onClick={() => setTab('list')} style={tabBtn(tab === 'list')}><FileText size={16} /> My Requisitions</button>

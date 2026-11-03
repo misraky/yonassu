@@ -1457,9 +1457,7 @@ const FinanceOutstandingReceivables = () => {
         )}
       </div>
 
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-        @keyframes ror-spin { 100% { transform: rotate(360deg); } }
+      <style>{`@keyframes ror-spin { 100% { transform: rotate(360deg); } }
 
         * { box-sizing: border-box; }
 

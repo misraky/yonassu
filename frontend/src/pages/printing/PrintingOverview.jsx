@@ -4,10 +4,7 @@ import apiClient from '../../services/apiClient';
 import { RefreshCw, Package, Printer, Server, Clock, CheckCircle, AlertTriangle, PlayCircle } from 'lucide-react';
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-  
-  .print-dash {
+const CSS = `.print-dash {
     background-color: #F5F5F5; /* Light Gray */
     min-height: 100vh;
     padding: 2rem;

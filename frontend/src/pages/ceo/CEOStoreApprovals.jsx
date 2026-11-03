@@ -33,10 +33,7 @@ const isFieldChanged = (field, before, after) => {
 
 /* ─── Enterprise Global Styles ─── */
 const GlobalStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-    .csa-page {
+  <style>{`.csa-page {
       font-family: 'Inter', 'Segoe UI', Roboto, -apple-system, sans-serif;
       color: #111827;
       background: #F5F6FA;

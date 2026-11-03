@@ -2,10 +2,7 @@
    PRINTING CONTACT SETTINGS PAGE
    Enterprise UI: SAP Fiori / Dynamics 365 quality
    Mirrors HR Contact Settings page design
-════════════════════════════════════════════════ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
-/* ── Design Tokens ── */
+════════════════════════════════════════════════ *//* ── Design Tokens ── */
 .container {
   --color-primary:        #2563EB;
   --color-primary-hover:  #1D4ED8;

@@ -3,9 +3,7 @@ import { Sliders, Plus, Trash2, Search, Eye, EyeOff, RefreshCw, CheckCircle, Pac
 import { NotifStore } from './StoreHomeNew';
 
 /* ── Enterprise CSS ─────────────────────────────────────────────── */
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-  :root {
+const CSS = `:root {
     --cp: #2563EB; --cp-h: #1D4ED8;
     --cbg: #F5F6FA; --ccard: #FFFFFF; --cborder: #E5E7EB;
     --ct1: #111827; --ct2: #6B7280; --ctm: #9CA3AF;

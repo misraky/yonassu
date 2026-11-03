@@ -9,10 +9,7 @@ import {
 import SegmentedSpinner from '../../components/ui/SegmentedSpinner';
 
 /* ─── shared CSS ────────────────────────────────────────────────────────── */
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-  .fin-page {
+const STYLES = `.fin-page {
     padding: 32px;
     background: #F8FAFC; /* Softer, cooler light gray */
     min-height: calc(100vh - 60px);
