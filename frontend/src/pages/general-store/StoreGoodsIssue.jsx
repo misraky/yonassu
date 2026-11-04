@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, Plus, Trash2, Printer, CheckCircle, Search } from 'lucide-react';
+import { ArrowUpRight, Plus, Trash2, Printer, CheckCircle, FileText } from 'lucide-react';
 import { createIssue, getInventory } from '../../utils/storeApi';
+import Model22Voucher from '../../components/Model22Voucher';
 
 const DESTINATION_LIST = [
   'Pharmacy',
@@ -12,17 +13,34 @@ const DESTINATION_LIST = [
   'Maintenance',
   'Laboratory',
   'Radiology',
+  'Car Rental',
+  'AgriRent',
   'Other Department',
 ];
 
-const emptyLine = () => ({ id: Date.now(), drug_id: '', drug_name: '', qtyToIssue: '', batchNumber: '' });
+const emptyLine = () => ({
+  id: Date.now(),
+  drug_id: '',
+  drug_name: '',
+  code_no: '',
+  unit: 'Pcs',
+  qtyToIssue: '',
+  unit_price: '',
+  batchNumber: '',
+});
 
 const StoreGoodsIssue = () => {
   const [destination, setDestination] = useState('Pharmacy');
+  const [receivingSection, setReceivingSection] = useState('Pharmacy');
   const [requisitionRef, setRequisitionRef] = useState('');
   const [approvalRef, setApprovalRef] = useState('');
+  const [preparedBy, setPreparedBy] = useState('Store Keeper');
+  const [checkedBy, setCheckedBy] = useState('Store Supervisor');
+  const [auditedBy, setAuditedBy] = useState('Auditor / Controller');
+  const [includeVat, setIncludeVat] = useState(true);
   const [lines, setLines] = useState([emptyLine()]);
   const [submitted, setSubmitted] = useState(null);
+  const [previewBlank, setPreviewBlank] = useState(false);
   const [errors, setErrors] = useState({});
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,6 +70,9 @@ const StoreGoodsIssue = () => {
     if (item) {
       updateLine(id, 'drug_id', drugId);
       updateLine(id, 'drug_name', item.drug_name);
+      updateLine(id, 'code_no', item.drug_code || `CD-${item.drug_id}`);
+      updateLine(id, 'unit', item.unit || 'Pcs');
+      updateLine(id, 'unit_price', item.unit_price || item.unit_cost || 0);
       updateLine(id, 'batchNumber', item.batch_no || '');
     }
   };
@@ -76,12 +97,13 @@ const StoreGoodsIssue = () => {
       const payload = {
         issue_no,
         department: destination,
-        issued_to: destination,
+        issued_to: receivingSection || destination,
         requisition_ref: requisitionRef,
         approval_ref: approvalRef,
         items: lines.map(line => ({
           drug_id: Number(line.drug_id),
           quantity: Number(line.qtyToIssue),
+          unit_cost: Number(line.unit_price || 0),
           batch_no: line.batchNumber,
         }))
       };
@@ -89,16 +111,29 @@ const StoreGoodsIssue = () => {
       if (!res.success) throw new Error(res.message);
       const responseData = res.data || res;
       setSubmitted({
-        m22Number: responseData.issue_no || responseData.id,
+        m22Number: responseData.issue_no || responseData.id || '128',
         date: responseData.created_at || new Date().toISOString(),
-        destination: responseData.department || responseData.issued_to || destination,
+        destination: receivingSection || responseData.department || responseData.issued_to || destination,
         requisitionRef: responseData.requisition_ref || requisitionRef,
         approvalRef: responseData.approval_ref || approvalRef,
-        lines: (responseData.items || lines).map((item, idx) => ({
-          itemName: item.drug_name || (lines[idx] ? lines[idx].drug_name : ''),
-          qtyToIssue: item.quantity || item.qtyToIssue,
-          batchNumber: item.batch_no || item.batchNumber || '',
-        }))
+        preparedBy,
+        checkedBy,
+        auditedBy,
+        includeVat,
+        lines: (responseData.items || lines).map((item, idx) => {
+          const l = lines[idx] || {};
+          const qty = Number(item.quantity || l.qtyToIssue || 0);
+          const price = Number(item.unit_cost || l.unit_price || 0);
+          return {
+            description: item.drug_name || l.drug_name || '',
+            codeNo: l.code_no || (item.drug_id ? `CD-${item.drug_id}` : ''),
+            unit: l.unit || 'Pcs',
+            quantity: qty,
+            unit_price: price,
+            total_amount: qty * price,
+            batchNumber: item.batch_no || l.batchNumber || '',
+          };
+        })
       });
     } catch (err) {
       setErrors({ requisitionRef: err.message });
@@ -108,46 +143,53 @@ const StoreGoodsIssue = () => {
   if (submitted) {
     return (
       <div style={{ padding: 24, background: '#f8fafc', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
-        <div style={{ maxWidth: 800, margin: '0 auto', background: 'white', borderRadius: 12, border: '2px solid #f59e0b', padding: 32 }}>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <CheckCircle size={56} color="#f59e0b" />
-            <h2 style={{ fontSize: 22, fontWeight: 'bold', color: '#92400e', margin: '12px 0 4px' }}>Goods Issued Successfully</h2>
-            <p style={{ color: '#64748b' }}>M22 Issue Note has been generated and inventory updated.</p>
-          </div>
-          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 20, border: '1px dashed #cbd5e1', marginBottom: 24 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 14, marginBottom: 16 }}>
-              <div><strong>M22 Number:</strong> <span style={{ fontFamily: 'monospace', color: '#f59e0b' }}>{submitted.m22Number}</span></div>
-              <div><strong>Destination:</strong> {submitted.destination}</div>
-              <div><strong>Requisition # (M20):</strong> {submitted.requisitionRef}</div>
-              <div><strong>Approval # (M21):</strong> {submitted.approvalRef}</div>
-              <div><strong>Date:</strong> {new Date(submitted.date).toLocaleDateString()}</div>
-            </div>
-            <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Items Issued:</h4>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: '#fef3c7' }}>
-                {['Item Name', 'Qty Issued', 'Batch #'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left' }}>{h}</th>)}
-              </tr></thead>
-              <tbody>{submitted.lines.map((l, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '8px 10px', fontWeight: 600 }}>{l.itemName}</td>
-                  <td style={{ padding: '8px 10px' }}>{l.qtyToIssue}</td>
-                  <td style={{ padding: '8px 10px', fontFamily: 'monospace' }}>{l.batchNumber || 'N/A'}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-            <div style={{ marginTop: 24, padding: 16, background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: 8, textAlign: 'center', fontWeight: 'bold', fontSize: 16, color: '#92400e' }}>
-              📤 GOODS ISSUED — STORE MANAGER STAMP: M22-APPROVED-{submitted.m22Number}
+        <div style={{ maxWidth: 820, margin: '0 auto 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <CheckCircle size={28} color="#16a34a" />
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#166534' }}>Goods Issued Successfully</h2>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Model 22 (Material Store Issue) has been generated.</div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer' }}>
-              <Printer size={15} /> Print M22
-            </button>
-            <button onClick={() => { setSubmitted(null); setLines([emptyLine()]); setErrors({}); }} style={{ padding: '10px 24px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
-              + New Issue Note
-            </button>
-          </div>
+          <button
+            onClick={() => { setSubmitted(null); setLines([emptyLine()]); setErrors({}); }}
+            style={{ padding: '9px 20px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+          >
+            + New Issue Note
+          </button>
         </div>
+
+        <Model22Voucher
+          voucherNo={submitted.m22Number}
+          date={new Date(submitted.date).toLocaleDateString('en-GB')}
+          receivingSection={submitted.destination}
+          items={submitted.lines}
+          includeVat={submitted.includeVat}
+          preparedBy={submitted.preparedBy}
+          checkedBy={submitted.checkedBy}
+          auditedBy={submitted.auditedBy}
+          onClose={() => setSubmitted(null)}
+          showActions={true}
+        />
+      </div>
+    );
+  }
+
+  if (previewBlank) {
+    return (
+      <div style={{ padding: 24, background: '#f8fafc', minHeight: '100vh' }}>
+        <div style={{ maxWidth: 820, margin: '0 auto 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Model 22 Blank Voucher Pad Preview</h2>
+          <button onClick={() => setPreviewBlank(false)} style={{ padding: '8px 18px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Back to Form</button>
+        </div>
+        <Model22Voucher
+          voucherNo="128"
+          date={new Date().toLocaleDateString('en-GB')}
+          receivingSection=""
+          items={[]}
+          onClose={() => setPreviewBlank(false)}
+          showActions={true}
+        />
       </div>
     );
   }
@@ -170,24 +212,37 @@ const StoreGoodsIssue = () => {
 
   return (
     <div style={{ padding: 24, background: '#f8fafc', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ArrowUpRight color="#f59e0b" size={28} /> GOODS ISSUE
-        </h1>
-        <p style={{ color: '#64748b', margin: '4px 0 0' }}>Document Model: M22 — Issue Note</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ArrowUpRight color="#f59e0b" size={28} /> GOODS ISSUE
+          </h1>
+          <p style={{ color: '#64748b', margin: '4px 0 0' }}>Document Model: Model 22 — Material Store Issue (የዕቃዎች ወጪ ማድረጊያ ሰነድ)</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPreviewBlank(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}
+        >
+          <FileText size={15} /> Blank Model 22 Pad
+        </button>
       </div>
 
       <form onSubmit={handleSubmit}>
         <div style={{ background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', padding: 20, marginBottom: 16 }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 15 }}>Destination & Reference</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>Destination &amp; Voucher Header</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr', gap: 16 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Destination *</label>
-              <select value={destination} onChange={e => setDestination(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 14 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Destination Department *</label>
+              <select value={destination} onChange={e => { setDestination(e.target.value); setReceivingSection(e.target.value); }} style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 14 }}>
                 {DESTINATION_LIST.map(dept => (
                   <option key={dept} value={dept}>{dept}</option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>የተቀባዩ ክፍል / Receiving Section *</label>
+              <input value={receivingSection} onChange={e => setReceivingSection(e.target.value)} placeholder="e.g. Pharmacy Section, printing workshop..." style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }} />
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Requisition # (M20) *</label>
@@ -204,40 +259,145 @@ const StoreGoodsIssue = () => {
 
         <div style={{ background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', padding: 20, marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 15 }}>Items to Issue</h3>
-            <button type="button" onClick={addLine} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Items to Issue (Model 22 Lines)</h3>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Item No, Description, Code No, Unit of Measure, Quantity, and Unit Price</p>
+            </div>
+            <button type="button" onClick={addLine} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
               <Plus size={14} /> Add Item
             </button>
           </div>
-          {lines.map((line, i) => (
-            <div key={line.id} style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr auto', gap: 10, marginBottom: 12, alignItems: 'flex-start' }}>
-              <div>
-                {i === 0 && <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 4 }}>ITEM NAME *</label>}
-                <select value={line.drug_id} onChange={e => handleDrugSelect(line.id, e.target.value)} style={{ width: '100%', padding: '9px 10px', border: `1px solid ${errors[`item_${i}`] ? '#ef4444' : '#cbd5e1'}`, borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}>
-                  <option value="">Select item...</option>
-                  {inventory.map(item => (
-                    <option key={item.drug_id} value={item.drug_id}>{item.drug_name} {item.strength} (Stock: {item.quantity})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                {i === 0 && <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 4 }}>QTY TO ISSUE *</label>}
-                <input type="number" value={line.qtyToIssue} onChange={e => updateLine(line.id, 'qtyToIssue', e.target.value)} placeholder="0" style={{ width: '100%', padding: '9px 10px', border: `1px solid ${errors[`qty_${i}`] ? '#ef4444' : '#cbd5e1'}`, borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                {i === 0 && <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 4 }}>BATCH # (opt)</label>}
-                <input value={line.batchNumber} onChange={e => updateLine(line.id, 'batchNumber', e.target.value)} placeholder="BT-XXXX" style={{ width: '100%', padding: '9px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
-              </div>
-              <div style={{ paddingTop: i === 0 ? 20 : 0 }}>
-                {lines.length > 1 && <button type="button" onClick={() => removeLine(line.id)} style={{ padding: '9px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer' }}><Trash2 size={14} color="#ef4444" /></button>}
-              </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 800 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
+                  <th style={{ padding: '8px 6px', textAlign: 'left', width: 32 }}>#</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'left' }}>Description (Item Name) *</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'left', width: 110 }}>Code No.</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'center', width: 80 }}>Unit</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'center', width: 90 }}>Quantity *</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'right', width: 110 }}>Unit Price (ETB)</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'right', width: 110 }}>Line Total</th>
+                  <th style={{ padding: '8px 8px', textAlign: 'left', width: 110 }}>Batch #</th>
+                  <th style={{ padding: '8px 6px', width: 36 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line, i) => {
+                  const qty = parseFloat(line.qtyToIssue) || 0;
+                  const price = parseFloat(line.unit_price) || 0;
+                  const lineTotal = (qty * price).toFixed(2);
+
+                  return (
+                    <tr key={line.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px 6px', color: '#64748b', fontWeight: 600 }}>{i + 1}</td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <select
+                          value={line.drug_id}
+                          onChange={e => handleDrugSelect(line.id, e.target.value)}
+                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${errors[`item_${i}`] ? '#ef4444' : '#cbd5e1'}`, borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                        >
+                          <option value="">Select inventory item...</option>
+                          {inventory.map(item => (
+                            <option key={item.drug_id} value={item.drug_id}>{item.drug_name} {item.strength || ''} (Avail: {item.quantity})</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <input
+                          value={line.code_no}
+                          onChange={e => updateLine(line.id, 'code_no', e.target.value)}
+                          placeholder="Code #"
+                          style={{ width: '100%', padding: '8px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', boxSizing: 'border-box' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <input
+                          value={line.unit}
+                          onChange={e => updateLine(line.id, 'unit', e.target.value)}
+                          placeholder="Pcs"
+                          style={{ width: '100%', padding: '8px 6px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, textAlign: 'center', boxSizing: 'border-box' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          value={line.qtyToIssue}
+                          onChange={e => updateLine(line.id, 'qtyToIssue', e.target.value)}
+                          placeholder="0"
+                          style={{ width: '100%', padding: '8px 8px', border: `1px solid ${errors[`qty_${i}`] ? '#ef4444' : '#cbd5e1'}`, borderRadius: 6, fontSize: 13, textAlign: 'center', fontWeight: 600, boxSizing: 'border-box' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={line.unit_price}
+                          onChange={e => updateLine(line.id, 'unit_price', e.target.value)}
+                          placeholder="0.00"
+                          style={{ width: '100%', padding: '8px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, textAlign: 'right', boxSizing: 'border-box' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
+                        ETB {Number(lineTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <input
+                          value={line.batchNumber}
+                          onChange={e => updateLine(line.id, 'batchNumber', e.target.value)}
+                          placeholder="Batch #"
+                          style={{ width: '100%', padding: '8px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                        {lines.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeLine(line.id)}
+                            style={{ padding: '6px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', display: 'inline-flex' }}
+                          >
+                            <Trash2 size={13} color="#ef4444" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Signatures and Options */}
+        <div style={{ background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', padding: 20, marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700 }}>Authorized Signatories &amp; Tax Settings</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>ያዘጋጀው / Prepared by</label>
+              <input value={preparedBy} onChange={e => setPreparedBy(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
             </div>
-          ))}
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>ፈቅዶ ያወጣው / Checked &amp; Issue by</label>
+              <input value={checkedBy} onChange={e => setCheckedBy(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>ቁጥር የተቆጣጠረው / Checked &amp; Tester by</label>
+              <input value={auditedBy} onChange={e => setAuditedBy(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 20 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeVat} onChange={e => setIncludeVat(e.target.checked)} style={{ width: 16, height: 16 }} />
+                Apply 15% VAT (ተ.እ.ታ)
+              </label>
+            </div>
+          </div>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <button type="button" onClick={() => { setLines([emptyLine()]); setErrors({}); }} style={{ padding: '10px 24px', background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>Reset</button>
-          <button type="submit" style={{ padding: '10px 28px', background: '#92400e', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Submit & Generate M22</button>
+          <button type="submit" style={{ padding: '10px 28px', background: '#92400e', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Submit &amp; Generate Model 22</button>
         </div>
       </form>
     </div>
