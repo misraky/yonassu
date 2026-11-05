@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpRight, RefreshCw, Eye, Edit3, Trash2, X, Check } from 'lucide-react';
+import { ArrowUpRight, RefreshCw, Eye, Edit3, Trash2, X, Check, Printer } from 'lucide-react';
 import { getTodayIssues, updateIssue, deleteIssue } from '../../utils/storeApi';
 import { storeSuccess, storeInfo } from '../../utils/storeNotifications';
+import Model22Voucher from '../../components/Model22Voucher';
 
 const StoreGoodsIssuedToday = () => {
   const navigate = useNavigate();
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
+  const [printVoucher, setPrintVoucher] = useState(null);
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({});
 
@@ -22,6 +24,10 @@ const StoreGoodsIssuedToday = () => {
   useEffect(() => { fetchData(); }, []);
 
   const handleView = (r) => setDetail(r);
+
+  const handlePrintM22 = (r) => {
+    setPrintVoucher(r);
+  };
 
   const handleEdit = (r) => {
     setEditId(r.id);
@@ -53,7 +59,7 @@ const StoreGoodsIssuedToday = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: '#9a3412' }}>
-            <ArrowUpRight color="#f97316" size={28} /> GOODS ISSUED TODAY
+            <ArrowUpRight color="#f97316" size={28} /> GOODS ISSUED TODAY (MODEL 22)
           </h1>
           <p style={{ color: '#64748b', margin: '4px 0 0' }}>Today's stock issues — {new Date().toLocaleDateString()}</p>
         </div>
@@ -70,7 +76,7 @@ const StoreGoodsIssuedToday = () => {
           <div style={{ fontSize: 16, fontWeight: 600 }}>No goods issued today</div>
           <div style={{ fontSize: 13, marginTop: 4 }}>All issued stock will appear here</div>
           <button onClick={() => navigate('/store/goods-issue')} style={{ marginTop: 16, padding: '10px 24px', background: '#f97316', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
-            + New Goods Issue
+            + New Goods Issue (Model 22)
           </button>
         </div>
       ) : (
@@ -94,8 +100,11 @@ const StoreGoodsIssuedToday = () => {
                   <td style={{ padding: '12px 14px', color: '#64748b', fontSize: 12 }}>{new Date(r.created_at).toLocaleTimeString()}</td>
                   <td style={{ padding: '12px 14px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => handlePrintM22(r)} title="Print Model 22" style={{ padding: '5px 8px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, cursor: 'pointer', color: '#92400e', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, fontSize: 12 }}>
+                        <Printer size={13} /> M22
+                      </button>
                       <button onClick={() => handleView(r)} title="View Details" style={{ padding: '5px 8px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, cursor: 'pointer', color: '#1d4ed8' }}><Eye size={14} /></button>
-                      <button onClick={() => handleEdit(r)} title="Edit" style={{ padding: '5px 8px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, cursor: 'pointer', color: '#b45309' }}><Edit3 size={14} /></button>
+                      <button onClick={() => handleEdit(r)} title="Edit" style={{ padding: '5px 8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer', color: '#475569' }}><Edit3 size={14} /></button>
                       <button onClick={() => handleDelete(r.id)} title="Delete" style={{ padding: '5px 8px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', color: '#b91c1c' }}><Trash2 size={14} /></button>
                     </div>
                   </td>
@@ -109,9 +118,12 @@ const StoreGoodsIssuedToday = () => {
       {/* Detail Modal */}
       {detail && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setDetail(null)}>
-          <div style={{ background: 'white', borderRadius: 12, padding: 28, maxWidth: 600, width: '90%', maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: 'white', borderRadius: 12, padding: 28, maxWidth: 620, width: '90%', maxHeight: '85vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{detail.issue_no}</h2>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{detail.issue_no}</h2>
+                <div style={{ fontSize: 12, color: '#64748b' }}>Model 22 — Material Store Issue</div>
+              </div>
               <button onClick={() => setDetail(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20, fontSize: 13 }}>
@@ -123,10 +135,10 @@ const StoreGoodsIssuedToday = () => {
               <div><strong>Date:</strong> {new Date(detail.created_at).toLocaleString()}</div>
             </div>
             <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>Items</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 20 }}>
               <thead>
                 <tr style={{ background: '#f8fafc' }}>
-                  <th style={{ padding: '8px 10px', textAlign: 'left' }}>Drug</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'left' }}>Item</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qty</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>Unit Cost</th>
                 </tr>
@@ -134,13 +146,49 @@ const StoreGoodsIssuedToday = () => {
               <tbody>
                 {(detail.items || []).map((item, i) => (
                   <tr key={item.id || i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '8px 10px' }}>Drug #{item.drug_id}</td>
+                    <td style={{ padding: '8px 10px' }}>{item.drug_name || `Item #${item.drug_id}`}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right' }}>{item.quantity}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right' }}>ETB {Number(item.unit_cost || 0).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => { const d = detail; setDetail(null); handlePrintM22(d); }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: '#9a3412', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+              >
+                <Printer size={15} /> Print Model 22
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Model 22 Print Modal */}
+      {printVoucher && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }} onClick={() => setPrintVoucher(null)}>
+          <div style={{ maxWidth: 880, width: '100%', maxHeight: '92vh', overflow: 'auto', background: '#fff', borderRadius: 8 }} onClick={e => e.stopPropagation()}>
+            <Model22Voucher
+              voucherNo={printVoucher.issue_no || '128'}
+              date={new Date(printVoucher.created_at).toLocaleDateString('en-GB')}
+              receivingSection={printVoucher.issued_to || printVoucher.department}
+              items={(printVoucher.items || []).map(it => ({
+                description: it.drug_name || `Item #${it.drug_id}`,
+                codeNo: it.drug_code || (it.drug_id ? `CD-${it.drug_id}` : ''),
+                unit: it.unit || 'Pcs',
+                quantity: it.quantity,
+                unit_price: it.unit_cost || 0,
+                total_amount: (it.quantity || 0) * (it.unit_cost || 0),
+                batchNumber: it.batch_no || '',
+              }))}
+              preparedBy="Store Keeper"
+              checkedBy="Store Supervisor"
+              auditedBy="Auditor / Tester"
+              onClose={() => setPrintVoucher(null)}
+              showActions={true}
+            />
           </div>
         </div>
       )}

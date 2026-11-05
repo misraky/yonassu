@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../services/apiClient';
 import { playSound, sendPushNotification } from '../../services/notificationManager';
 import { useToast } from '../../components/Toast';
 import CEOStampSignature from '../../components/CEOStampSignature';
 import { Truck, Printer, CheckCircle } from 'lucide-react';
+import Model22Voucher from '../../components/Model22Voucher';
 
 const STATUS_BADGES = {
   DRAFT:     { bg: '#F1F5F9', color: '#475569', text: 'Draft' },
@@ -73,80 +74,17 @@ const IssueNote = () => {
     finally { setLoading(false); }
   };
 
-  const handlePrint = () => {
-    const v = selectedVoucher;
-    if (!v) return;
-    const w = window.open('', '_blank');
-    if (!w) return;
-    w.document.write(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Goods Issue Form - ${v.iss_no}</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #111; }
-    .header-title { color: #065F46; font-size: 28px; font-weight: bold; text-align: center; margin-bottom: 5px; font-style: italic; }
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; font-size: 14px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    th { background-color: #065F46; color: white; border: 1px solid #000; padding: 10px; font-size: 13px; text-align: left; }
-    td { border: 1px solid #000; padding: 12px; font-size: 13px; }
-    .no-print { }
-    @media print { @page { margin: 15mm; } body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none; } }
-  </style>
-</head>
-<body>
-  <div class="no-print" style="text-align:right; margin-bottom:20px;">
-    <button onclick="window.print()" style="padding:8px 16px;background:#065F46;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">Print</button>
-  </div>
-  <div class="header-title">Goods Issue Form</div>
-  <div style="text-align:center;font-size:12px;color:#666;margin-bottom:30px;">Model 22</div>
-  <div class="meta-grid">
-    <div><strong>Issue No.:</strong> ${v.iss_no}</div>
-    <div><strong>Issue Date:</strong> ${new Date(v.issued_at || v.created_at).toLocaleDateString()}</div>
-    <div><strong>Department:</strong> Pharmacy</div>
-    <div><strong>Requested By:</strong> ${v.req_no || '—'}</div>
-    <div><strong>Approved By:</strong> ${v.apr_no || '—'}</div>
-    <div><strong>Warehouse:</strong> Main Store</div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Item</th>
-        <th style="text-align:center;">Quantity</th>
-        <th style="text-align:center;">Unit</th>
-        <th style="text-align:center;">Purpose</th>
-        <th style="text-align:center;">Batch No.</th>
-        <th style="text-align:center;">Expiry Date</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>${v.drug_name}</td>
-        <td style="text-align:center;">${v.quantity_issued || v.quantity_approved}</td>
-        <td style="text-align:center;">${v.unit_of_measure || 'Units'}</td>
-        <td style="text-align:center;">Dispensing</td>
-        <td style="text-align:center;">${v.batch_number || '—'}</td>
-        <td style="text-align:center;">${v.expiry_date ? new Date(v.expiry_date).toLocaleDateString() : '—'}</td>
-      </tr>
-      <tr><td><br></td><td></td><td></td><td></td><td></td><td></td></tr>
-      <tr><td><br></td><td></td><td></td><td></td><td></td><td></td></tr>
-      <tr><td><br></td><td></td><td></td><td></td><td></td><td></td></tr>
-      <tr><td><br></td><td></td><td></td><td></td><td></td><td></td></tr>
-    </tbody>
-  </table>
-  <div style="font-size:14px;margin-bottom:30px;"><strong>Remarks:</strong> —</div>
-  <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:13px;">
-    <div><strong>Issued By:</strong><br>${v.issued_by_name || 'Store Manager'}<br><br>Signature: _________________</div>
-    <div style="text-align:right;"><strong>Received By (Pharmacy):</strong><br>_________________________<br><br>Signature: _________________</div>
-  </div>
-  <script>setTimeout(() => { window.print(); }, 500);</script>
-</body>
-</html>`);
-    w.document.close();
-  };
-
   const pendingCount = vouchers.filter(v => v.status === 'DRAFT').length;
+
+  const voucherItems = selectedVoucher ? [{
+    description: selectedVoucher.drug_name,
+    codeNo: selectedVoucher.drug_code || (selectedVoucher.drug_id ? `CD-${selectedVoucher.drug_id}` : ''),
+    unit: selectedVoucher.unit_of_measure || 'Units',
+    quantity: parseFloat(selectedVoucher.quantity_issued || selectedVoucher.quantity_approved || 0),
+    unit_price: parseFloat(selectedVoucher.unit_cost || selectedVoucher.unit_price || 0),
+    total_amount: parseFloat(selectedVoucher.quantity_issued || selectedVoucher.quantity_approved || 0) * parseFloat(selectedVoucher.unit_cost || selectedVoucher.unit_price || 0),
+    batchNumber: selectedVoucher.batch_number || '',
+  }] : [];
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'Inter, sans-serif' }}>
@@ -155,7 +93,7 @@ const IssueNote = () => {
       {/* Header */}
       <div style={{ display: 'flex', gap: 10, marginBottom: '1.5rem', alignItems: 'center' }}>
         <Truck size={20} color="#6B21A8" />
-        <h2 style={{ margin: 0, color: '#1E293B', fontSize: 24, fontWeight: 700 }}>Goods Issue</h2>
+        <h2 style={{ margin: 0, color: '#1E293B', fontSize: 24, fontWeight: 700 }}>Goods Issue (Model 22)</h2>
         {pendingCount > 0 && (
           <span style={{ background: '#F3E8FF', color: '#6B21A8', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
             {pendingCount} pending
@@ -164,10 +102,10 @@ const IssueNote = () => {
       </div>
 
       {/* Split screen */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '1.5rem', alignItems: 'flex-start' }}>
 
         {/* LEFT: voucher list */}
-        <div style={{ background: 'white', borderRadius: 12, border: '1px solid #E2E8F0', maxHeight: '70vh', overflow: 'auto' }}>
+        <div style={{ background: 'white', borderRadius: 12, border: '1px solid #E2E8F0', maxHeight: '82vh', overflow: 'auto' }}>
           {vouchers.length === 0 ? (
             <div style={{ padding: '2.5rem', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>No issue vouchers found</div>
           ) : vouchers.map(v => {
@@ -193,81 +131,20 @@ const IssueNote = () => {
           })}
         </div>
 
-        {/* RIGHT: paper form */}
+        {/* RIGHT: Model 22 Authentic Voucher & Actions */}
         <div style={{ background: 'white', borderRadius: 12, border: '1px solid #E2E8F0', position: 'relative', minHeight: 400, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
           {!selectedVoucher ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flex: 1, color: '#94A3B8', fontSize: 13 }}>
-              Select an issue voucher to view
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400, flex: 1, color: '#94A3B8', fontSize: 13 }}>
+              Select an issue voucher to view Model 22
             </div>
           ) : (
-            <div style={{ padding: '2rem', flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-
-              {/* Print button — only when issued */}
-              {selectedVoucher.status !== 'DRAFT' && (
-                <button onClick={handlePrint} style={{ position: 'absolute', top: 16, right: 16, padding: '8px 14px', background: '#065F46', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Printer size={14} /> Print
-                </button>
-              )}
-
-              {/* Paper heading */}
-              <h2 style={{ color: '#065F46', fontSize: 24, fontStyle: 'italic', fontWeight: 800, textAlign: 'center', margin: '0 0 5px 0' }}>Goods Issue Form</h2>
-              <div style={{ textAlign: 'center', fontSize: 12, color: '#64748B', marginBottom: 24 }}>Model 22</div>
-
-              {/* Meta grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: 13, marginBottom: 24, color: '#1E293B' }}>
-                <div><strong>Issue No.:</strong> {selectedVoucher.iss_no}</div>
-                <div><strong>Issue Date:</strong> {new Date(selectedVoucher.issued_at || selectedVoucher.created_at).toLocaleDateString()}</div>
-                <div><strong>Department:</strong> Pharmacy</div>
-                <div><strong>Requested By:</strong> {selectedVoucher.req_no || '—'}</div>
-                <div><strong>Approved By:</strong> {selectedVoucher.apr_no || '—'}</div>
-                <div><strong>Warehouse:</strong> Main Store</div>
-              </div>
-
-              {/* Item table */}
-              <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #1E293B', marginBottom: 24 }}>
-                <thead>
-                  <tr style={{ background: '#065F46', color: 'white' }}>
-                    <th style={{ padding: 10, border: '1px solid #1E293B', fontSize: 12, textAlign: 'left', fontWeight: 600 }}>Item</th>
-                    <th style={{ padding: 10, border: '1px solid #1E293B', fontSize: 12, textAlign: 'center', fontWeight: 600 }}>Quantity</th>
-                    <th style={{ padding: 10, border: '1px solid #1E293B', fontSize: 12, textAlign: 'center', fontWeight: 600 }}>Unit</th>
-                    <th style={{ padding: 10, border: '1px solid #1E293B', fontSize: 12, textAlign: 'center', fontWeight: 600 }}>Purpose</th>
-                    <th style={{ padding: 10, border: '1px solid #1E293B', fontSize: 12, textAlign: 'center', fontWeight: 600 }}>Batch No.</th>
-                    <th style={{ padding: 10, border: '1px solid #1E293B', fontSize: 12, textAlign: 'center', fontWeight: 600 }}>Expiry Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ padding: 12, border: '1px solid #1E293B', fontSize: 13 }}>{selectedVoucher.drug_name}</td>
-                    <td style={{ padding: 12, border: '1px solid #1E293B', fontSize: 13, textAlign: 'center' }}>{selectedVoucher.quantity_issued || selectedVoucher.quantity_approved}</td>
-                    <td style={{ padding: 12, border: '1px solid #1E293B', fontSize: 13, textAlign: 'center' }}>{selectedVoucher.unit_of_measure || 'Units'}</td>
-                    <td style={{ padding: 12, border: '1px solid #1E293B', fontSize: 13, textAlign: 'center' }}>Dispensing</td>
-                    <td style={{ padding: 12, border: '1px solid #1E293B', fontSize: 13, textAlign: 'center' }}>{selectedVoucher.batch_number || '—'}</td>
-                    <td style={{ padding: 12, border: '1px solid #1E293B', fontSize: 13, textAlign: 'center' }}>{selectedVoucher.expiry_date ? new Date(selectedVoucher.expiry_date).toLocaleDateString() : '—'}</td>
-                  </tr>
-                  {[...Array(4)].map((_, i) => (
-                    <tr key={i}>
-                      <td style={{ padding: 16, border: '1px solid #1E293B' }}></td>
-                      <td style={{ padding: 16, border: '1px solid #1E293B' }}></td>
-                      <td style={{ padding: 16, border: '1px solid #1E293B' }}></td>
-                      <td style={{ padding: 16, border: '1px solid #1E293B' }}></td>
-                      <td style={{ padding: 16, border: '1px solid #1E293B' }}></td>
-                      <td style={{ padding: 16, border: '1px solid #1E293B' }}></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div style={{ fontSize: 13, color: '#1E293B', marginBottom: 24 }}>
-                <strong>Remarks:</strong> —
-              </div>
-
-              <div style={{ flex: 1 }}></div>
+            <div style={{ padding: '1.25rem', flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
 
               {/* Action panel for DRAFT vouchers */}
               {selectedVoucher.status === 'DRAFT' && (
-                <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '16px', border: '1px solid #E2E8F0', marginTop: 'auto' }}>
+                <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '16px', border: '1px solid #E2E8F0', marginBottom: 20 }}>
                   <h4 style={{ margin: '0 0 12px', fontSize: 14, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Truck size={18} color="#6B21A8" /> Issue Items & Deduct Stock
+                    <Truck size={18} color="#6B21A8" /> Issue Items &amp; Deduct Stock
                   </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
                     <div>
@@ -302,9 +179,22 @@ const IssueNote = () => {
                 </div>
               )}
 
+              {/* Exact Model 22 Form */}
+              <Model22Voucher
+                voucherNo={selectedVoucher.iss_no}
+                date={new Date(selectedVoucher.issued_at || selectedVoucher.created_at).toLocaleDateString('en-GB')}
+                receivingSection="Pharmacy Department"
+                items={voucherItems}
+                preparedBy={selectedVoucher.req_no ? `Req #${selectedVoucher.req_no}` : 'Pharmacy Requester'}
+                checkedBy={selectedVoucher.issued_by_name || 'Store Manager'}
+                auditedBy={selectedVoucher.apr_no ? `Apr #${selectedVoucher.apr_no}` : 'Auditor / Controller'}
+                minRows={10}
+                showActions={true}
+              />
+
               {/* Issued stamp */}
               {selectedVoucher.status !== 'DRAFT' && (
-                <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6B21A8' }}>
                     <CheckCircle size={24} />
                     <div>
